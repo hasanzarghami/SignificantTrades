@@ -13,7 +13,7 @@ class CSVStorage {
 			fs.mkdirSync(dataFolder);
     }
 
-		const filePath = path.join(dataFolder, 'save.csv');
+    const filePath = path.join(dataFolder, 'save.csv');
     this.stream = fs.createWriteStream(filePath, {flags: 'a'})
   }
 
