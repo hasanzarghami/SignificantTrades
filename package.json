@@ -1,6 +1,6 @@
 {
   "name": "significanttrades-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Live BTCUSD trades visualizer from every exchanges.",
   "main": "index.js",
   "scripts": {
