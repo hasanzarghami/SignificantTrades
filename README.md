@@ -29,6 +29,7 @@ node index
 This will give you a running server on <http://127.0.0.1:3000> with mounted `./data` volume.
 See `./env` file for some basic configuration.
 Watch logs using `docker logs -f st-server`.
+Uncomment `influx` part in `docker-compose.yml` and set `STORAGE=influx` in `.env` to start using influxdb as a storage.
 
 5. Profit !
 
