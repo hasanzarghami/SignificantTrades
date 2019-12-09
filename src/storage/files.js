@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 
 class FilesStorage {
 
@@ -10,8 +11,10 @@ class FilesStorage {
 			this.options.filesInterval = 3600000; // 1h file default
 		}
 
-		if (!fs.existsSync('./data')){
-			fs.mkdirSync('./data');
+		const {dataFolder} = this.options;
+
+		if (!fs.existsSync(dataFolder)){
+			fs.mkdirSync(dataFolder);
 		}
 	}
 
@@ -25,7 +28,7 @@ class FilesStorage {
 	 */
 	getBackupFilename(date) {
 		let filename = `
-			data/${this.options.pair}
+			${this.options.pair}
 			_${date.getFullYear()}
 			-${('0' + (date.getMonth()+1)).slice(-2)}
 			-${('0' + date.getDate()).slice(-2)}
@@ -43,7 +46,7 @@ class FilesStorage {
 			filename += `-${('0' + date.getSeconds()).slice(-2)}`;
 		}
 
-		return filename.replace(/\s+/g, '');
+		return path.join(this.options.dataFolder, filename.replace(/\s+/g, ''));
 	}
 
 	save(chunk) {

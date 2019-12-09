@@ -1,0 +1,17 @@
+version: '3.7'
+
+services:
+  server:
+    container_name: st-server
+    image: significant-trades-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - WORKDIR=${WORKDIR}
+        - DATA_FOLDER=${DATA_FOLDER}
+        - PORT=${PORT}
+    volumes:
+      - ./${DATA_FOLDER}:${WORKDIR}/${DATA_FOLDER}
+    ports:
+      - ${PORT}:${PORT}
