@@ -148,9 +148,11 @@ export default {
         const size = trade[2] * trade[3]
 
         if (trade[5] === 1) {
+          if (options.useAudio && ((options.audioIncludeAll && size > options.threshold * 0.1) || size > options.significantTradeThreshold)) {
           this.sfx &&
             !silent &&
             this.sfx.liquidation(size / options.significantTradeThreshold)
+          }
 
           if (size >= options.threshold * (trade[0] === 'bitmex' ? 1 : 0.75)) {
             this.appendRow(
