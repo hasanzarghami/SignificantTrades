@@ -52,7 +52,7 @@ class FilesStorage {
       filename += `-${('0' + date.getSeconds()).slice(-2)}`
     }
 
-		return path.join(this.options.filesLocation, filename.replace(/\s+/g, ''));
+    return path.join(this.options.filesLocation, filename.replace(/\s+/g, ''));
   }
 
   addWritableStream(ts) {

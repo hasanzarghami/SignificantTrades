@@ -40,10 +40,8 @@ All settings are optional and can be changed in the [server configuration file](
 {
   // the port which the server will be served at
   "port": 3000,
-
   // delay (in ms) between server each broadcast to avoid saturation
   "delay": 200, // (the higher the better performance wise)
-
   // pair used by the server
   "pair": "BTCUSD"
 
@@ -68,7 +66,6 @@ All settings are optional and can be changed in the [server configuration file](
   // "influx" (time serie database),
   // "es" (experimental)
   storage: 'files',
-
   // store interval (in ms)
   backupInterval: 1000 * 60,
 
@@ -81,8 +78,8 @@ All settings are optional and can be changed in the [server configuration file](
   // create new text file every N ms when storage is set to "file"
   filesInterval: 3600000,
 
-	// directory where data files will be created
-	filesLocation: "./data"
+  // directory where data files will be created
+  filesLocation: "./data"
 }
 ```
 
