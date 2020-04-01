@@ -513,7 +513,7 @@ class Okex extends Exchange {
 
     this.options = Object.assign(
       {
-        url: 'wss://real.okex.com:10442/ws/v3'
+        url: 'wss://real.okex.com:8443/ws/v3'
       },
       this.options
     )
@@ -612,15 +612,12 @@ class Okex extends Exchange {
 
       switch (type) {
         case 'spot':
-          console.log('register pair', pair, 'to', product.instrument_id)
           this.pairs[pair] = product.instrument_id
           break
         case 'swap':
-          console.log('register pair', pair + '-SWAP', 'to', product.instrument_id)
           this.pairs[pair + '-SWAP'] = product.instrument_id
           break
         case 'futures':
-          console.log('register pair', pair + '-' + product.alias.toUpperCase(), 'to', product.instrument_id)
           this.pairs[pair + '-' + product.alias.toUpperCase()] = product.instrument_id
           break
       }
@@ -648,10 +645,8 @@ class Okex extends Exchange {
       msUntilExpiration += 1000 * 60 * 60 * 24 * 7
     }
 
-    console.log('will expire after', msUntilExpiration, 'ms')
-
     const setupTimer = () => {
-      console.log('will getProducts at', new Date(+new Date() + msUntilExpiration))
+      console.log('[okex] schedule get futures products', new Date(+new Date() + msUntilExpiration))
 
       this.periodicFuturesRefreshTimeout = setTimeout(() => {
         msUntilExpiration = 1000 * 60 * 60 * 24 * 7
@@ -673,11 +668,9 @@ class Okex extends Exchange {
 
     const now = +new Date()
     const products = Object.keys(this.pairs)
-    console.log('initPeriodicLiquidationsRefresh')
 
     for (let i = 0; i < products.length; i++) {
       if (new RegExp('^' + this.pair.split('-')[0] + 'USD-').test(products[i])) {
-        console.log('add', products[i], this.pairs[products[i]], 'to lq products')
         this.lqProducts.push(this.pairs[products[i]])
         this.lqProductsTimestamps[this.pairs[products[i]]] = now
       }
@@ -703,7 +696,7 @@ class Okex extends Exchange {
 
     const token = axios.CancelToken
     this.productRequest = token.source()
-    console.log('getProducts', type);
+    console.log('[okex] getProducts', type);
 
     return axios
       .get(`https://www.okex.com/api/${type}/v3/instruments`)
