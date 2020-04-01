@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path')
 
 console.log(`[init] reading config.json...`)
 
@@ -70,11 +71,13 @@ const DEFAULTS = {
 let config
 
 try {
-  if (!fs.existsSync('../config.json') && fs.existsSync('../config.json.example')) {
-    fs.copyFileSync('../config.json.example', './config.json')
+	const configPath = path.resolve(__dirname, '../config.json');
+	const configExamplePath = path.resolve(__dirname, '../config.json.example');
+  if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath)) {
+    fs.copyFileSync(configExamplePath, configPath)
   }
 
-  config = require('../config')
+  config = require(configPath)
 } catch (error) {
   throw new Error(`Unable to parse configuration file\n\n${error.message}`)
 }
