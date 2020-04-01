@@ -68,7 +68,7 @@ All settings are optional and can be changed in the [server configuration file](
   // "influx" (time serie database),
   // "es" (experimental)
   storage: 'files',
-	
+
   // store interval (in ms)
   backupInterval: 1000 * 60,
 
