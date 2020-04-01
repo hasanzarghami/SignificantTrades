@@ -2,13 +2,13 @@ FROM node:10
 
 ARG WORKDIR
 ARG PORT
-ARG DATA_FOLDER
+ARG FILES_LOCATION
 ARG INFLUX_URL
 ARG STORAGE
 
 ENV PORT $PORT
 ENV WORKDIR $WORKDIR
-ENV DATA_FOLDER $DATA_FOLDER
+ENV FILES_LOCATION $FILES_LOCATION
 ENV INFLUX_URL $INFLUX_URL
 ENV STORAGE $STORAGE
 
@@ -21,4 +21,4 @@ RUN npm install --production && \
 COPY . ./
 
 EXPOSE $PORT
-CMD ["sh", "-c", "npm start port=${PORT} dataFolder=${DATA_FOLDER} influxUrl=${INFLUX_URL} storage=${STORAGE}"]
+CMD ["sh", "-c", "npm start port=${PORT} filesLocation=${FILES_LOCATION} influxUrl=${INFLUX_URL} storage=${STORAGE}"]

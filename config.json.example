@@ -3,5 +3,5 @@
 	"delay": 200,
 	"pair": "BTCUSD",
 	"origin": ".*",
-	"dataFolder": "./data"
+	"filesLocation": "./data"
 }

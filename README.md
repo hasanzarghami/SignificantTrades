@@ -82,7 +82,7 @@ All settings are optional and can be changed in the [server configuration file](
   filesInterval: 3600000,
 
 	// directory where data files will be created
-	dataFolder: "./data"
+	filesLocation: "./data"
 }
 ```
 

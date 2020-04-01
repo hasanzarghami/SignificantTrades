@@ -7,13 +7,13 @@ class CSVStorage {
 		this.options = options;
 		this.format = 'trade';
 
-		const {dataFolder} = this.options;
+		const {filesLocation} = this.options;
 
-		if (!fs.existsSync(dataFolder)){
-			fs.mkdirSync(dataFolder);
+		if (!fs.existsSync(filesLocation)){
+			fs.mkdirSync(filesLocation);
     }
 
-    const filePath = path.join(dataFolder, 'save.csv');
+    const filePath = path.join(filesLocation, 'save.csv');
     this.stream = fs.createWriteStream(filePath, {flags: 'a'})
   }
 

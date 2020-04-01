@@ -9,12 +9,12 @@ services:
       dockerfile: Dockerfile
       args:
         - WORKDIR=${WORKDIR}
-        - DATA_FOLDER=${DATA_FOLDER}
+        - FILES_LOCATION=${FILES_LOCATION}
         - PORT=${SERVER_PORT}
         - INFLUX_URL=influx:${INFLUX_PORT}
         - STORAGE=${STORAGE}
     volumes:
-      - ./${DATA_FOLDER}:${WORKDIR}/${DATA_FOLDER}
+      - ./${FILES_LOCATION}:${WORKDIR}/${FILES_LOCATION}
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
 
@@ -24,4 +24,4 @@ services:
   #   ports:
   #     - ${INFLUX_PORT}:${INFLUX_PORT}
   #   volumes:
-  #     - ./${DATA_FOLDER}/influxdb:/var/lib/influxdb
+  #     - ./${FILES_LOCATION}/influxdb:/var/lib/influxdb
