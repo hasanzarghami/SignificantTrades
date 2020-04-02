@@ -1,4 +1,5 @@
 const fs = require('fs')
+const path = require('path');
 const getHms = require('../helper').getHms
 
 class FilesStorage {
@@ -51,7 +52,7 @@ class FilesStorage {
       filename += `-${('0' + date.getSeconds()).slice(-2)}`
     }
 
-    return filename.replace(/\s+/g, '')
+    return filename.replace(/\s+/g, '');
   }
 
   addWritableStream(ts) {
@@ -202,9 +203,9 @@ class FilesStorage {
     }
 
     return Promise.all(
-      paths.map(path => {
+      paths.map(filePath => {
         return new Promise((resolve, reject) => {
-          fs.readFile(path, 'utf8', (error, data) => {
+          fs.readFile(filePath, 'utf8', (error, data) => {
             if (error) {
               // console.error(`[storage/files] unable to get ${path}\n\t`, error.message);
               return resolve([])

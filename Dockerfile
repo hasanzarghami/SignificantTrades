@@ -1,0 +1,24 @@
+FROM node:10
+
+ARG WORKDIR
+ARG PORT
+ARG FILES_LOCATION
+ARG INFLUX_URL
+ARG STORAGE
+
+ENV PORT $PORT
+ENV WORKDIR $WORKDIR
+ENV FILES_LOCATION $FILES_LOCATION
+ENV INFLUX_URL $INFLUX_URL
+ENV STORAGE $STORAGE
+
+WORKDIR /$WORKDIR
+
+COPY package*.json ./
+RUN npm install --production && \
+    npm cache clean --force
+
+COPY . ./
+
+EXPOSE $PORT
+CMD ["sh", "-c", "npm start port=${PORT} filesLocation=${FILES_LOCATION} influxUrl=${INFLUX_URL} storage=${STORAGE}"]

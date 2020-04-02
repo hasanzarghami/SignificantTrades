@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 
 class CSVStorage {
 
@@ -6,11 +7,14 @@ class CSVStorage {
 		this.options = options;
 		this.format = 'trade';
 
-		if (!fs.existsSync('./data')){
-			fs.mkdirSync('./data');
+		const {filesLocation} = this.options;
+
+		if (!fs.existsSync(filesLocation)){
+			fs.mkdirSync(filesLocation);
     }
 
-    this.stream = fs.createWriteStream('./data/save.csv', {flags: 'a'})
+    const filePath = path.join(filesLocation, 'save.csv');
+    this.stream = fs.createWriteStream(filePath, {flags: 'a'})
   }
 
 	save(chunk) {
