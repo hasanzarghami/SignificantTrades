@@ -60,7 +60,7 @@ class Bitstamp extends Exchange {
       return;
 
     if (this.api && this.api.connection.state === 'connected') {
-      this.api.disconnect();
+      this.api.close();
     }
 	}
 
