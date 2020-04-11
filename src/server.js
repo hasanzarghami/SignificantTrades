@@ -292,38 +292,16 @@ class Server extends EventEmitter {
       if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
-          return next({
-            type: 'error',
-            httpCode: 400,
-            message: {
-              errCode: 'e402',
-              text: 'Not name specified'
-            }
-          })
-        }, 5000 + Math.random() * 5000)
-      } else if (req.headers.accept && req.headers.accept.indexOf('json') === -1) {
-        console.error(`[${ip}/BLOCKED] req.headers.accept`)
-        setTimeout(() => {
-          return next({
-            type: 'error',
-            httpCode: 400,
-            message: {
-              errCode: 'e402',
-              text: 'Not name specified'
-            }
+          return res.status(500).json({
+            error: 'ignored'
           })
         }, 5000 + Math.random() * 5000)
       } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
         console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
         setTimeout(() => {
-          return next({
-            type: 'error',
-            httpCode: 400,
-            message: {
-              errCode: 'e402',
-              text: 'Not name specified'
-            }
+          return res.status(500).json({
+            error: 'ignored'
           })
         }, 5000 + Math.random() * 5000)
       } else {
@@ -339,7 +317,7 @@ class Server extends EventEmitter {
       })
     })
 
-    app.get('/historical/:from/:to/:timeframe?/:exchanges?', (req, res) => {
+    app.get('/:pair?/historical/:from/:to/:timeframe?/:exchanges?', (req, res) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
       var from = req.params.from
       var to = req.params.to
