@@ -444,8 +444,8 @@ class Server extends EventEmitter {
       }
     })
 
-    app.listen(3000, () => {
-      console.log('Server running at http://localhost:3000/')
+    app.listen(this.options.port, () => {
+      console.log('[server] server listning at http://localhost:' + this.options.port + '/')
     })
 
     this.app = app
