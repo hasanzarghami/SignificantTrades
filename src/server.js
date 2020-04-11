@@ -144,8 +144,8 @@ class Server extends EventEmitter {
   }
 
   handleExchangesEvents() {
-    this.exchanges.forEach(exchange => {
-      exchange.on('data', event => {
+    this.exchanges.forEach((exchange) => {
+      exchange.on('data', (event) => {
         this.timestamps[event.exchange] = +new Date()
 
         this.stats.trades += event.data.length
@@ -165,7 +165,7 @@ class Server extends EventEmitter {
         }
       })
 
-      exchange.on('open', event => {
+      exchange.on('open', (event) => {
         if (!this.connected) {
           console.log(`[warning] "${exchange.id}" connected but the server state was disconnected`)
           return exchange.disconnect()
@@ -177,7 +177,7 @@ class Server extends EventEmitter {
         })
       })
 
-      exchange.on('err', event => {
+      exchange.on('err', (event) => {
         this.broadcast({
           type: 'exchange_error',
           id: exchange.id,
@@ -185,7 +185,7 @@ class Server extends EventEmitter {
         })
       })
 
-      exchange.on('close', event => {
+      exchange.on('close', (event) => {
         if (this.connected) {
           exchange.reconnect(this.options.pair)
         }
@@ -221,7 +221,7 @@ class Server extends EventEmitter {
         type: 'welcome',
         pair: this.options.pair,
         timestamp: +new Date(),
-        exchanges: this.exchanges.map(exchange => {
+        exchanges: this.exchanges.map((exchange) => {
           return {
             id: exchange.id,
             connected: exchange.connected
@@ -246,7 +246,7 @@ class Server extends EventEmitter {
 
       ws.send(JSON.stringify(data))
 
-      ws.on('close', event => {
+      ws.on('close', (event) => {
         let error = null
 
         switch (event) {
@@ -310,7 +310,7 @@ class Server extends EventEmitter {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
 
         if (req.headers.accept && req.headers.accept.indexOf('json') > -1) {
-          setTimeout(function() {
+          setTimeout(() => {
             response.writeHead(400)
             response.end(JSON.stringify({ error: 'naughty, naughty...' }))
           }, 5000 + Math.random() * 5000)
@@ -322,7 +322,7 @@ class Server extends EventEmitter {
       } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
         console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
-        setTimeout(function() {
+        setTimeout(() => {
           response.end()
         }, 5000 + Math.random() * 5000)
 
@@ -333,8 +333,8 @@ class Server extends EventEmitter {
 
       const routes = [
         {
-          match: /.*historical\/(\d+)\/(\d+)(?:\/(\d+))?\/?$/,
-          response: (from, to, timeframe) => {
+          match: /.*historical\/(\d+)\/(\d+)(?:\/(\d+))(?:\/([\w\/]+))?\/?$/,
+          response: (from, to, timeframe, exchanges) => {
             if (!this.storage) {
               return
             }
@@ -343,8 +343,13 @@ class Server extends EventEmitter {
             response.setHeader('Content-Type', 'application/json')
 
             if (this.lockFetch) {
-              setTimeout(function() {
-                response.end('[]')
+              setTimeout(() => {
+                response.end(
+                  JSON.stringify({
+                    format: this.storage.format,
+                    results: []
+                  })
+                )
               }, Math.random() * 5000)
 
               return
@@ -358,30 +363,13 @@ class Server extends EventEmitter {
 
             let maxFetchInterval = 1000 * 60 * 60 * 8
 
-            if (this.storage.format === 'tick') {
+            if (this.storage.format === 'point') {
               maxFetchInterval *= 365
 
-              timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
+              exchanges = exchanges ? exchanges.split('/') : []
+              timeframe = parseInt(timeframe) || 60 // default to 1m
               from = Math.floor(from / timeframe) * timeframe
-              to = Math.floor(to / timeframe) * timeframe
-
-              if (timeframe > 1000 * 60 * 60 * 24) {
-                response.writeHead(400)
-                response.end(JSON.stringify({ error: 'Timeframe cannot exceed 1d' }))
-                return
-              }
-
-              if (timeframe < 1000 * 10) {
-                response.writeHead(400)
-                response.end(JSON.stringify({ error: 'Timeframe cannot be smaller than 10s' }))
-                return
-              }
-
-              if ((to - from) / timeframe > 1000) {
-                response.writeHead(400)
-                response.end(JSON.stringify({ error: 'Output cannot exceed 1000 points' }))
-                return
-              }
+              to = Math.ceil(to / timeframe) * timeframe
             } else {
               from = parseInt(from)
               to = parseInt(to)
@@ -404,14 +392,22 @@ class Server extends EventEmitter {
             }
 
             if (usage > this.options.maxFetchUsage && to - from > 1000 * 60) {
-              response.end('[]')
+              response.end(
+                JSON.stringify({
+                  format: this.storage.format,
+                  results: []
+                })
+              )
               return
             }
 
             const fetchStartAt = +new Date()
 
-            ;(this.storage ? this.storage.fetch(from, to, timeframe) : Promise.resolve([]))
-              .then(output => {
+            ;(this.storage
+              ? this.storage.fetch(from, to, timeframe, exchanges)
+              : Promise.resolve([])
+            )
+              .then((output) => {
                 if (to - from > 1000 * 60) {
                   console.log(
                     `[${ip}] requesting ${getHms(to - from)} (${output.length} ${
@@ -431,9 +427,9 @@ class Server extends EventEmitter {
 
                     output.push(this.chunk[i])
                   }
-                }
 
-                this.logUsage(ip, to - from)
+                  this.logUsage(ip, to - from)
+                }
 
                 response.end(
                   JSON.stringify({
@@ -442,7 +438,7 @@ class Server extends EventEmitter {
                   })
                 )
               })
-              .catch(error => {
+              .catch((error) => {
                 response.writeHead(500)
                 response.end(JSON.stringify({ error: error.message }))
               })
@@ -494,7 +490,7 @@ class Server extends EventEmitter {
       }
 
       if (this.wss) {
-        this.wss.handleUpgrade(req, socket, head, ws => {
+        this.wss.handleUpgrade(req, socket, head, (ws) => {
           this.wss.emit('connection', ws, req)
         })
       }
@@ -511,7 +507,7 @@ class Server extends EventEmitter {
     this.connected = true
     this.chunk = []
 
-    this.exchanges.forEach(exchange => {
+    this.exchanges.forEach((exchange) => {
       exchange.connect(this.options.pair)
     })
 
@@ -533,7 +529,7 @@ class Server extends EventEmitter {
       return
     }
 
-    this.wss.clients.forEach(client => {
+    this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data))
       }
@@ -547,7 +543,7 @@ class Server extends EventEmitter {
 
     this.connected = false
 
-    this.exchanges.forEach(exchange => {
+    this.exchanges.forEach((exchange) => {
       exchange.disconnect()
     })
 
@@ -557,7 +553,7 @@ class Server extends EventEmitter {
   monitorExchangesActivity() {
     const now = +new Date()
 
-    this.exchanges.forEach(exchange => {
+    this.exchanges.forEach((exchange) => {
       if (!exchange.connected) {
         return
       }
@@ -599,7 +595,7 @@ class Server extends EventEmitter {
       BANNED_IPS: '../banned.txt'
     }
 
-    Object.keys(files).forEach(name => {
+    Object.keys(files).forEach((name) => {
       if (fs.existsSync(files[name])) {
         const file = fs.readFileSync(files[name], 'utf8')
 
@@ -621,7 +617,7 @@ class Server extends EventEmitter {
     let length = storedQuotas.length
 
     if (storedQuotas.length) {
-      storedQuotas.forEach(ip => {
+      storedQuotas.forEach((ip) => {
         if (this.usage[ip].timestamp + this.options.fetchUsageResetInterval < now) {
           if (this.usage[ip].amount > this.options.maxFetchUsage) {
             console.log(`[${ip}] Usage cleared (${this.usage[ip].amount} -> 0)`)
@@ -652,7 +648,7 @@ class Server extends EventEmitter {
           usage: this.usage,
           notice: this.notice
         }),
-        err => {
+        (err) => {
           if (err) {
             console.error(`[persistence] Failed to write persistence.json\n\t`, err)
             return resolve(false)
