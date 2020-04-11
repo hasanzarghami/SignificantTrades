@@ -53,7 +53,7 @@ class Server extends EventEmitter {
       // update admin & banned ip
       this.updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
 
-      if (this.storage) {
+      if (this.options.collect && this.storage) {
         const delay = this.scheduleNextBackup()
 
         console.log(
