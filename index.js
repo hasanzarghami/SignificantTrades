@@ -13,7 +13,7 @@ const Server = require('./src/server')
 if (process.argv.length > 2) {
   let exchanges = []
 
-  process.argv.slice(2).forEach(arg => {
+  process.argv.slice(2).forEach((arg) => {
     const keyvalue = arg.split('=')
 
     if (keyvalue.length === 1) {
@@ -35,7 +35,7 @@ if (process.argv.length > 2) {
 if (!config.exchanges || !config.exchanges.length) {
   config.exchanges = []
 
-  fs.readdirSync('./src/exchanges/').forEach(file => {
+  fs.readdirSync('./src/exchanges/').forEach((file) => {
     ;/\.js$/.test(file) && config.exchanges.push(file.replace(/\.js$/, ''))
   })
 }
@@ -69,19 +69,19 @@ if (process.env.pmx) {
     name: 'Quotas'
   })
 
-  server.on('connections', n => {
+  server.on('connections', (n) => {
     currently_online.set(n)
   })
 
-  server.on('unique', n => {
+  server.on('unique', (n) => {
     unique_visitors.set(n)
   })
 
-  server.on('quotas', n => {
+  server.on('quotas', (n) => {
     stored_quotas.set(n)
   })
 
-  pmx.action('notice', function(message, reply) {
+  pmx.action('notice', function (message, reply) {
     if (!message || typeof message !== 'string' || !message.trim().length) {
       server.notice = null
 
@@ -109,16 +109,16 @@ if (process.env.pmx) {
 /* Backup server on SIGINT
  */
 
-process.on('SIGINT', function() {
+process.on('SIGINT', function () {
   console.log('SIGINT')
 
-  Promise.all([server.updatePersistence(), server.backupTrades()])
-    .then(data => {
+  Promise.all([server.backupTrades()])
+    .then((data) => {
       console.log('[server/exit] Goodbye')
 
       process.exit()
     })
-    .catch(err => {
+    .catch((err) => {
       console.log(
         `[server/exit] Something went wrong when executing SIGINT script${
           err && err.message ? '\n\t' + err.message : ''

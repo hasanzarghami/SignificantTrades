@@ -6,6 +6,8 @@ const http = require('http')
 const getIp = require('./helper').getIp
 const getHms = require('./helper').getHms
 
+const express = require('express')
+const rateLimit = require('express-rate-limit')
 class Server extends EventEmitter {
   constructor(options, exchanges) {
     super()
@@ -13,7 +15,7 @@ class Server extends EventEmitter {
     this.timestamps = {}
     this.connected = false
     this.chunk = []
-    this.lockFetch = true
+    this.lockFetch = false
 
     this.options = options
 
@@ -29,30 +31,11 @@ class Server extends EventEmitter {
     this.queue = []
 
     this.notice = null
-    this.usage = {}
     this.stats = {
       trades: 0,
       volume: 0,
       hits: 0,
       unique: 0
-    }
-
-    if (fs.existsSync('./persistence.json')) {
-      try {
-        const persistence = JSON.parse(fs.readFileSync('./persistence.json', 'utf8'))
-
-        this.stats = Object.assign(this.stats, persistence.stats)
-
-        if (persistence.usage) {
-          this.usage = persistence.usage
-        }
-
-        if (persistence.notice) {
-          this.notice = persistence.notice
-        }
-      } catch (err) {
-        console.log(`[init/persistence] Failed to parse persistence.json\n\t`, err)
-      }
     }
 
     this.initStorage().then(() => {
@@ -64,12 +47,6 @@ class Server extends EventEmitter {
 
       // update admin & banned ip
       this.updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
-
-      // check user usages that are dues for a reset
-      this.cleanupUsageInterval = setInterval(this.cleanupUsage.bind(this), 1000 * 90)
-
-      // backup server persistence
-      this.updatePersistenceInterval = setInterval(this.updatePersistence.bind(this), 1000 * 60 * 7)
 
       // profile exchanges connections (keep alive)
       this.profilerInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60 * 3)
@@ -213,7 +190,6 @@ class Server extends EventEmitter {
 
     this.wss.on('connection', (ws, req) => {
       const ip = getIp(req)
-      const usage = this.getUsage(ip)
 
       this.stats.hits++
 
@@ -238,8 +214,7 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws${ws.admin ? '/admin' : ''}] joined ${req.url} from ${req.headers['origin']}`,
-        usage ? '(RL: ' + ((usage / this.options.maxFetchUsage) * 100).toFixed() + '%)' : ''
+        `[${ip}/ws${ws.admin ? '/admin' : ''}] joined ${req.url} from ${req.headers['origin']}`
       )
 
       this.emit('connections', this.wss.clients.size)
@@ -299,180 +274,153 @@ class Server extends EventEmitter {
       return
     }
 
-    this.http = http.createServer((req, response) => {
-      response.setHeader('Access-Control-Allow-Origin', '*')
+    const app = express()
 
-      const ip = getIp(req)
-      const usage = this.getUsage(ip)
-      let path = url.parse(req.url).path
+    const limiter = rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 100 // limit each IP to 100 requests per windowMs
+    })
+
+    //  apply to all requests
+    app.use(limiter)
+
+    app.all('/*', (req, res, next) => {
+      var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
       if (!new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
-
-        if (req.headers.accept && req.headers.accept.indexOf('json') > -1) {
-          setTimeout(() => {
-            response.writeHead(400)
-            response.end(JSON.stringify({ error: 'naughty, naughty...' }))
-          }, 5000 + Math.random() * 5000)
-
-          return
-        } else {
-          path = null
-        }
+        setTimeout(() => {
+          return next({
+            type: 'error',
+            httpCode: 400,
+            message: {
+              errCode: 'e402',
+              text: 'Not name specified'
+            }
+          })
+        }, 5000 + Math.random() * 5000)
+      } else if (req.headers.accept && req.headers.accept.indexOf('json') === -1) {
+        console.error(`[${ip}/BLOCKED] req.headers.accept`)
+        setTimeout(() => {
+          return next({
+            type: 'error',
+            httpCode: 400,
+            message: {
+              errCode: 'e402',
+              text: 'Not name specified'
+            }
+          })
+        }, 5000 + Math.random() * 5000)
       } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
         console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
         setTimeout(() => {
-          response.end()
+          return next({
+            type: 'error',
+            httpCode: 400,
+            message: {
+              errCode: 'e402',
+              text: 'Not name specified'
+            }
+          })
         }, 5000 + Math.random() * 5000)
+      } else {
+        res.header('Access-Control-Allow-Origin', '*')
+        res.header('Access-Control-Allow-Headers', 'X-Requested-With')
+        next()
+      }
+    })
+
+    app.get('/', function (req, res) {
+      res.json({
+        message: 'hi'
+      })
+    })
+
+    app.get('/historical/:from/:to/:timeframe?/:exchanges?', (req, res) => {
+      var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+      var from = req.params.from
+      var to = req.params.to
+      var timeframe = req.params.timeframe
+      var exchanges = req.params.exchanges
+
+      if (!this.storage) {
+        return res.status(501).json({
+          error: 'no storage'
+        })
+      }
+
+      if (this.lockFetch) {
+        setTimeout(() => {
+          return res.status(425).json({
+            error: 'try again'
+          })
+        }, Math.random() * 5000)
 
         return
       }
 
-      let showHelloWorld = true
+      if (isNaN(from) || isNaN(to)) {
+        return res.status(400).json({
+          error: 'missing interval'
+        })
+      }
 
-      const routes = [
-        {
-          match: /.*historical\/(\d+)\/(\d+)(?:\/(\d+))(?:\/([\w\/]+))?\/?$/,
-          response: (from, to, timeframe, exchanges) => {
-            if (!this.storage) {
-              return
-            }
+      if (this.storage.format === 'point') {
+        exchanges = exchanges ? exchanges.split('/') : []
+        timeframe = parseInt(timeframe) || 60 // default to 1m
+        from = Math.floor(from / timeframe) * timeframe
+        to = Math.ceil(to / timeframe) * timeframe
+      } else {
+        from = parseInt(from)
+        to = parseInt(to)
+      }
 
-            showHelloWorld = false
-            response.setHeader('Content-Type', 'application/json')
+      if (from > to) {
+        let _from = parseInt(from)
+        from = parseInt(to)
+        to = _from
 
-            if (this.lockFetch) {
-              setTimeout(() => {
-                response.end(
-                  JSON.stringify({
-                    format: this.storage.format,
-                    results: []
-                  })
-                )
-              }, Math.random() * 5000)
+        console.log(`[${ip}] flip interval`)
+      }
 
-              return
-            }
+      const fetchStartAt = +new Date()
 
-            if (isNaN(from) || isNaN(to)) {
-              response.writeHead(400)
-              response.end(JSON.stringify({ error: 'Missing interval' }))
-              return
-            }
-
-            let maxFetchInterval = 1000 * 60 * 60 * 8
-
-            if (this.storage.format === 'point') {
-              maxFetchInterval *= 365
-
-              exchanges = exchanges ? exchanges.split('/') : []
-              timeframe = parseInt(timeframe) || 60 // default to 1m
-              from = Math.floor(from / timeframe) * timeframe
-              to = Math.ceil(to / timeframe) * timeframe
-            } else {
-              from = parseInt(from)
-              to = parseInt(to)
-            }
-
-            if (from > to) {
-              let _from = parseInt(from)
-              from = parseInt(to)
-              to = _from
-
-              console.log(`[${ip}] flip interval`)
-            }
-
-            if (to - from > maxFetchInterval) {
-              response.writeHead(400)
-              response.end(
-                JSON.stringify({ error: `Interval cannot exceed ${getHms(maxFetchInterval)}` })
-              )
-              return
-            }
-
-            if (usage > this.options.maxFetchUsage && to - from > 1000 * 60) {
-              response.end(
-                JSON.stringify({
-                  format: this.storage.format,
-                  results: []
-                })
-              )
-              return
-            }
-
-            const fetchStartAt = +new Date()
-
-            ;(this.storage
-              ? this.storage.fetch(from, to, timeframe, exchanges)
-              : Promise.resolve([])
+      ;(this.storage ? this.storage.fetch(from, to, timeframe, exchanges) : Promise.resolve([]))
+        .then((output) => {
+          if (to - from > 1000 * 60) {
+            console.log(
+              `[${ip}] requesting ${getHms(to - from)} (${output.length} ${
+                this.storage.format
+              }s, took ${getHms(+new Date() - fetchStartAt)})`
             )
-              .then((output) => {
-                if (to - from > 1000 * 60) {
-                  console.log(
-                    `[${ip}] requesting ${getHms(to - from)} (${output.length} ${
-                      this.storage.format
-                    }s, took ${getHms(+new Date() - fetchStartAt)}, consumed ${(
-                      ((usage + to - from) / this.options.maxFetchUsage) *
-                      100
-                    ).toFixed()}%)`
-                  )
-                }
-
-                if (this.storage.format === 'trade') {
-                  for (let i = 0; i < this.chunk.length; i++) {
-                    if (this.chunk[i][1] <= from || this.chunk[i][1] >= to) {
-                      continue
-                    }
-
-                    output.push(this.chunk[i])
-                  }
-
-                  this.logUsage(ip, to - from)
-                }
-
-                response.end(
-                  JSON.stringify({
-                    format: this.storage.format,
-                    results: output
-                  })
-                )
-              })
-              .catch((error) => {
-                response.writeHead(500)
-                response.end(JSON.stringify({ error: error.message }))
-              })
           }
-        }
-      ]
 
-      for (let route of routes) {
-        if (route.match.test(path)) {
-          route.response.apply(this, path.match(route.match).splice(1))
-          break
-        }
-      }
+          if (this.storage.format === 'trade') {
+            for (let i = 0; i < this.chunk.length; i++) {
+              if (this.chunk[i][1] <= from || this.chunk[i][1] >= to) {
+                continue
+              }
 
-      if (!response.finished && showHelloWorld) {
-        response.writeHead(200)
-        response.end(`
-					<!DOCTYPE html>
-					<html>
-						<head>
-							<title>SignificantTrades</title>
-							<meta name="robots" content="noindex">
-						</head>
-						<body>
-							You seems lost, the actual app is located <a target="_blank" href="https://github.com/Tucsky/SignificantTrades">here</a>.<br>
-							You like it ? <a target="_blank" href="bitcoin:3GLyZHY8gRS96sH4J9Vw6s1NuE4tWcZ3hX">BTC for more :-)</a>.<br><br>
-							<small>24/7 aggregator for ${this.options.pair}</small>
-						</body>
-					</html>
-				`)
-      }
+              output.push(this.chunk[i])
+            }
+          }
+
+          return res.status(200).json({
+            format: this.storage.format,
+            results: output
+          })
+        })
+        .catch((error) => {
+          return res.status(500).json({
+            error: error.message
+          })
+        })
     })
 
-    this.http.on('upgrade', (req, socket, head) => {
+    const server = http.createServer(this.app)
+
+    server.on('upgrade', (req, socket, head) => {
       const ip = getIp(req)
 
       if (!new RegExp(this.options.origin).test(req.headers['origin'])) {
@@ -496,9 +444,11 @@ class Server extends EventEmitter {
       }
     })
 
-    this.http.listen(this.options.port, () => {
-      console.log(`[server] http server listening on port ${this.options.port}`)
+    app.listen(3000, () => {
+      console.log('Server running at http://localhost:3000/')
     })
+
+    this.app = app
   }
 
   connectExchanges() {
@@ -608,77 +558,6 @@ class Server extends EventEmitter {
         this[name] = []
       }
     })
-  }
-
-  cleanupUsage() {
-    const now = +new Date()
-    const storedQuotas = Object.keys(this.usage)
-
-    let length = storedQuotas.length
-
-    if (storedQuotas.length) {
-      storedQuotas.forEach((ip) => {
-        if (this.usage[ip].timestamp + this.options.fetchUsageResetInterval < now) {
-          if (this.usage[ip].amount > this.options.maxFetchUsage) {
-            console.log(`[${ip}] Usage cleared (${this.usage[ip].amount} -> 0)`)
-          }
-
-          delete this.usage[ip]
-        }
-      })
-
-      length = Object.keys(this.usage).length
-
-      if (Object.keys(this.usage).length < storedQuotas.length) {
-        console.log(
-          `[clean] deleted ${storedQuotas.length - Object.keys(this.usage).length} stored quota(s)`
-        )
-      }
-    }
-
-    this.emit('quotas', length)
-  }
-
-  updatePersistence() {
-    return new Promise((resolve, reject) => {
-      fs.writeFile(
-        'persistence.json',
-        JSON.stringify({
-          stats: this.stats,
-          usage: this.usage,
-          notice: this.notice
-        }),
-        (err) => {
-          if (err) {
-            console.error(`[persistence] Failed to write persistence.json\n\t`, err)
-            return resolve(false)
-          }
-
-          return resolve(true)
-        }
-      )
-    })
-  }
-
-  getUsage(ip) {
-    if (typeof this.usage[ip] === 'undefined') {
-      this.usage[ip] = {
-        timestamp: +new Date(),
-        amount: 0
-      }
-    }
-
-    return this.usage[ip].amount
-  }
-
-  logUsage(ip, amount) {
-    if (typeof this.usage[ip] !== 'undefined') {
-      if (this.usage[ip].amount < this.options.maxFetchUsage) {
-        this.usage[ip].timestamp = +new Date()
-      }
-
-      this.usage[ip].amount += amount
-    }
   }
 }
 
