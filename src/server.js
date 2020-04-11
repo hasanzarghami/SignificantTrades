@@ -15,7 +15,7 @@ class Server extends EventEmitter {
     this.timestamps = {}
     this.connected = false
     this.chunk = []
-    this.lockFetch = false
+    this.lockFetch = true
 
     this.options = options
 
@@ -39,17 +39,19 @@ class Server extends EventEmitter {
     }
 
     this.initStorage().then(() => {
-      this.handleExchangesEvents()
-      this.connectExchanges()
+      if (this.options.collect) {
+        this.handleExchangesEvents()
+        this.connectExchanges()
+
+        // profile exchanges connections (keep alive)
+        this.profilerInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60 * 3)
+      }
 
       this.createWSServer()
       this.createHTTPServer()
 
       // update admin & banned ip
       this.updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
-
-      // profile exchanges connections (keep alive)
-      this.profilerInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60 * 3)
 
       if (this.storage) {
         const delay = this.scheduleNextBackup()
@@ -287,7 +289,7 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!new RegExp(this.options.origin).test(req.headers['origin'])) {
+      if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return next({

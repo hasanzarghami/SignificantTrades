@@ -10,6 +10,9 @@ const DEFAULTS = {
   // default pair we track
   pair: 'BTCUSD',
 
+  // will connect to exchanges and subscribe to pairs on startup
+  collect: true,
+
   // default server port
   port: 3000,
 
@@ -71,8 +74,8 @@ const DEFAULTS = {
 let config
 
 try {
-	const configPath = path.resolve(__dirname, '../config.json');
-	const configExamplePath = path.resolve(__dirname, '../config.json.example');
+  const configPath = path.resolve(__dirname, '../config.json')
+  const configExamplePath = path.resolve(__dirname, '../config.json.example')
   if (!fs.existsSync(configPath) && fs.existsSync(configExamplePath)) {
     fs.copyFileSync(configExamplePath, configPath)
   }
