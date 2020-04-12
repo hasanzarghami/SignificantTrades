@@ -283,12 +283,6 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (!this.options.api) {
-        return res.status(404).json({
-          error: '404 not found'
-        })
-      }
-
       if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
@@ -348,13 +342,10 @@ class Server extends EventEmitter {
 
       if (this.storage.format === 'point') {
         exchanges = exchanges ? exchanges.split('/') : []
-        timeframe = parseInt(timeframe) || 60 // default to 1m
+        timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
+
         from = Math.floor(from / timeframe) * timeframe
         to = Math.ceil(to / timeframe) * timeframe
-
-        if (timeframe > 1440) {
-          timeframe /= 1000
-        }
       } else {
         from = parseInt(from)
         to = parseInt(to)

@@ -356,8 +356,8 @@ class InfluxStorage {
       })
   }
 
-  fetch(from, to, timeframe = 60, exchanges = []) {
-    const timeframeText = getHms(timeframe * 1000)
+  fetch(from, to, timeframe = 60000, exchanges = []) {
+    const timeframeText = getHms(timeframe)
 
     return this.influx
       .query(
