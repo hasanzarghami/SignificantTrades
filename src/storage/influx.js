@@ -31,7 +31,7 @@ class InfluxStorage {
             }
           })
           .then(() => {
-            if (!this.options.collect) {
+            if (!this.options.api) {
               return resolve()
             }
 

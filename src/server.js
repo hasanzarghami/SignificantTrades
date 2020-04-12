@@ -270,10 +270,6 @@ class Server extends EventEmitter {
   }
 
   createHTTPServer() {
-    if (!this.options.api) {
-      return
-    }
-
     const app = express()
 
     const limiter = rateLimit({
@@ -286,6 +282,12 @@ class Server extends EventEmitter {
 
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+
+      if (!this.options.api) {
+        return res.status(404).json({
+          error: '404 not found'
+        })
+      }
 
       if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
         console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
