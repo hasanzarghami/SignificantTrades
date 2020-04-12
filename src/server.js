@@ -47,8 +47,8 @@ class Server extends EventEmitter {
         this.profilerInterval = setInterval(this.monitorExchangesActivity.bind(this), 1000 * 60 * 3)
       }
 
-      this.createWSServer()
       this.createHTTPServer()
+      this.createWSServer()
 
       // update admin & banned ip
       this.updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
@@ -183,7 +183,7 @@ class Server extends EventEmitter {
     }
 
     this.wss = new WebSocket.Server({
-      noServer: true
+      server: this.server
     })
 
     this.wss.on('listening', () => {
@@ -398,33 +398,7 @@ class Server extends EventEmitter {
         })
     })
 
-    const server = http.createServer(this.app)
-
-    server.on('upgrade', (req, socket, head) => {
-      const ip = getIp(req)
-
-      if (!new RegExp(this.options.origin).test(req.headers['origin'])) {
-        // console.error(`[${ip}/BLOCKED] socket origin mismatch (${this.options.origin} !== ${req.headers['origin']})`);
-
-        socket.destroy()
-
-        return
-      } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
-        // console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`);
-
-        socket.destroy()
-
-        return
-      }
-
-      if (this.wss) {
-        this.wss.handleUpgrade(req, socket, head, (ws) => {
-          this.wss.emit('connection', ws, req)
-        })
-      }
-    })
-
-    app.listen(this.options.port, () => {
+    this.server = app.listen(this.options.port, () => {
       console.log('[server] server listning at http://localhost:' + this.options.port + '/')
     })
 
