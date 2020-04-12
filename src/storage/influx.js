@@ -347,13 +347,13 @@ class InfluxStorage {
       .then(() => {
         const afterTs = +new Date()
 
-        console.log(
+        /*console.log(
           `[storage/influx] added ${output.length - updated} points (+${trades.length} trades)${
             updated ? ', updated ' + updated + ' point' + (updated > 1 ? 's' : '') : ''
           }, took ${getHms(
             afterTs - beforeTs
           )} from ${beforeTs.getHours()}:${beforeTs.getMinutes()}:${beforeTs.getSeconds()}.${beforeTs.getMilliseconds()}`
-        )
+        )*/
       })
       .catch((err) => {
         console.log(err.message)

@@ -101,8 +101,6 @@ class Server extends EventEmitter {
       return Promise.resolve()
     }
 
-    process.stdout.write(`[server/storage] backup ${this.chunk.length} trades\t\t\t\r`)
-
     return this.storage.save(this.chunk.splice(0, this.chunk.length)).then(() => {
       this.scheduleNextBackup()
     })
@@ -351,6 +349,10 @@ class Server extends EventEmitter {
         timeframe = parseInt(timeframe) || 60 // default to 1m
         from = Math.floor(from / timeframe) * timeframe
         to = Math.ceil(to / timeframe) * timeframe
+
+        if (timeframe > 1440) {
+          timeframe /= 1000
+        }
       } else {
         from = parseInt(from)
         to = parseInt(to)
