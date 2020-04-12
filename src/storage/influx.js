@@ -31,10 +31,6 @@ class InfluxStorage {
             }
           })
           .then(() => {
-            if (!this.options.api) {
-              return resolve()
-            }
-
             Promise.all(this.options.exchanges.map((exchange) => this.getReferencePoint(exchange)))
               .then(() => {
                 this.setupResampling().then
