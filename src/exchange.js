@@ -115,7 +115,7 @@ class Exchange extends EventEmitter {
         if (trade[1] > this.queuedTrade[1] || trade[4] !== this.queuedTrade[4]) {
           this.queuedTrade[2] /= this.queuedTrade[3]
           output.push(this.queuedTrade)
-          this.queuedTrade = trade
+          this.queuedTrade = trade.slice(0, trade.length)
           this.queuedTrade[2] *= this.queuedTrade[3]
           clearTimeout(this.queuedTradeTimeout)
           delete this.queuedTradeTimeout
@@ -124,7 +124,7 @@ class Exchange extends EventEmitter {
           this.queuedTrade[2] += trade[2] * trade[3]
         }
       } else {
-        this.queuedTrade = trade
+        this.queuedTrade = trade.slice(0, trade.length)
         this.queuedTrade[2] *= this.queuedTrade[3]
       }
     }
