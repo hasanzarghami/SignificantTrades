@@ -80,45 +80,73 @@ class Exchange extends EventEmitter {
     this.emit('open', event)
   }
 
-  emitData(data) {
-    if (!data || !data.length) {
+  emitData(trades) {
+    if (!trades || !trades.length) {
       return
-    }
-
-    if (this.options.sameMs) {
-      const group = {}
-
-      for (let trade of data) {
-        const id = trade[1] + '_' + trade[4]
-
-        if (group[id] && !group[id][5]) {
-          group[id][2].push(trade[2])
-          group[id][3].push(trade[3])
-        } else {
-          trade[2] = [trade[2]]
-          trade[3] = [trade[3]]
-          group[id] = trade
-        }
-      }
-
-      data = Object.keys(group).map(id => {
-        group[id][2] =
-          group[id][2].map((price, index) => price * group[id][3][index]).reduce((a, b) => a + b) /
-          group[id][2].length /
-          (group[id][3].reduce((a, b) => a + b) / group[id][3].length)
-        group[id][3] = group[id][3].reduce((a, b) => a + b)
-
-        group[id][2] = this.toFixed(group[id][2], 10)
-        group[id][3] = this.toFixed(group[id][3], 10)
-
-        return group[id]
-      })
     }
 
     this.emit('data', {
       exchange: this.id,
-      data
-    })
+      data: trades
+    })  
+
+    if (!this.options.aggr) {
+      return
+    }
+
+    const output = []
+
+    for (let i = 0; i < trades.length; i++) {
+      const trade = trades[i]
+
+      if (trade[5]) {
+        if (this.queueTrades) {
+          this.queuedTrade[2] /= this.queuedTrade[3]
+          output.push(this.queuedTrade)
+          delete this.queuedTrade
+          clearTimeout(this.queuedTradeTimeout)
+          delete this.queuedTradeTimeout
+        }
+        output.push(trade)
+        continue
+      }
+
+      if (this.queuedTrade) {
+        if (trade[1] > this.queuedTrade[1] || trade[4] !== this.queuedTrade[4]) {
+          this.queuedTrade[2] /= this.queuedTrade[3]
+          output.push(this.queuedTrade)
+          this.queuedTrade = trade
+          this.queuedTrade[2] *= this.queuedTrade[3]
+          clearTimeout(this.queuedTradeTimeout)
+          delete this.queuedTradeTimeout
+        } else if (trade[1] <= this.queuedTrade[1] && trade[4] === this.queuedTrade[4]) {
+          this.queuedTrade[3] += +trade[3]
+          this.queuedTrade[2] += trade[2] * trade[3]
+        }
+      } else {
+        this.queuedTrade = trade
+        this.queuedTrade[2] *= this.queuedTrade[3]
+      }
+    }
+
+    if (this.queuedTrade && !this.queuedTradeTimeout) {
+      this.queuedTradeTimeout = setTimeout(() => {
+        this.queuedTrade[2] /= this.queuedTrade[3]
+        this.emit('data.aggr', {
+          exchange: this.id,
+          data: [this.queuedTrade]
+        })  
+        delete this.queuedTrade
+        delete this.queuedTradeTimeout
+      }, 50)
+    }
+
+    if (output.length) {
+      this.emit('data.aggr', {
+        exchange: this.id,
+        data: output
+      })  
+    }
   }
 
   toFixed(number, precision) {

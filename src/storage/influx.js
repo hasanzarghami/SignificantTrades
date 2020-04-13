@@ -3,6 +3,7 @@ const getHms = require('../helper').getHms
 
 class InfluxStorage {
   constructor(options) {
+    this.name = this.constructor.name
     this.format = 'point'
 
     if (!options.influxUrl) {
@@ -14,7 +15,7 @@ class InfluxStorage {
   }
 
   connect() {
-    console.log(`[storage/influx] connecting`)
+    console.log(`[storage/${this.name}] connecting`)
 
     return new Promise((resolve, reject) => {
       try {
@@ -38,13 +39,13 @@ class InfluxStorage {
                 resolve()
               })
               .catch((err) => {
-                console.error(`[storage/influx] unable to get reference points :-(`)
+                console.error(`[storage/${this.name}] unable to get reference points :-(`)
 
                 reject(err)
               })
           })
           .catch((err) => {
-            console.error(`[storage/influx] error creating Influx database :-(`)
+            console.error(`[storage/${this.name}] error creating Influx database :-(`)
 
             reject(err)
           })
@@ -69,7 +70,7 @@ class InfluxStorage {
     this.options.influxResampleTo.sort((a, b) => a - b)
 
     let cq_created = []
-    console.log(this.options.influxResampleTo)
+    
     for (let timeframe of this.options.influxResampleTo) {
       if (!from) {
         from = getHms(this.options.influxTimeframe)
@@ -110,7 +111,7 @@ class InfluxStorage {
         await this.influx
           .query(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
           .then((res) => {
-            console.log(`[storage/influx] preheated ${into} data...`)
+            console.log(`[storage/${this.name}] preheated ${into} data...`)
           })
           .catch((err) => {
             console.log(err)
@@ -147,7 +148,7 @@ class InfluxStorage {
 
     if (cq_created.length) {
       console.log(
-        `[storage/influx] successfully created ${
+        `[storage/${this.name}] successfully created ${
           this.options.influxResampleTo.length
         } continuous queries\n\ttimeframes: ${cq_created.join(', ')}`
       )
@@ -155,7 +156,7 @@ class InfluxStorage {
 
     await this.influx.query(`SHOW CONTINUOUS QUERIES`).then((cqs) => {
       console.log(
-        `[storage/influx] ${cqs.length} active continuous queries\n\t-> ${cqs
+        `[storage/${this.name}] ${cqs.length} active continuous queries\n\t-> ${cqs
           .map((a) => a.name)
           .join(', ')}`
       )
@@ -163,7 +164,7 @@ class InfluxStorage {
   }
 
   getReferencePoint(exchange) {
-    console.log(`[storage/influx] get reference point for exchange ${exchange}`)
+    console.log(`[storage/${this.name}] get reference point for exchange ${exchange}`)
 
     const now = +new Date()
 
@@ -193,7 +194,7 @@ class InfluxStorage {
           this.lastBar[exchange] = data[0]
 
           console.log(
-            `[storage/influx] got ${exchange}'s reference\n\tlast close: ${data[0].close}`
+            `[storage/${this.name}] got ${exchange}'s reference\n\tlast close: ${data[0].close}`
           )
 
           return data[0]
@@ -344,7 +345,7 @@ class InfluxStorage {
         const afterTs = +new Date()
 
         /*console.log(
-          `[storage/influx] added ${output.length - updated} points (+${trades.length} trades)${
+          `[storage/${this.name}] added ${output.length - updated} points (+${trades.length} trades)${
             updated ? ', updated ' + updated + ' point' + (updated > 1 ? 's' : '') : ''
           }, took ${getHms(
             afterTs - beforeTs
@@ -372,7 +373,7 @@ class InfluxStorage {
       )
       .catch((err) => {
         console.error(
-          `[storage/influx] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`,
+          `[storage/${this.name}] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`,
           err.message
         )
       })

@@ -10,28 +10,6 @@ const Server = require('./src/server')
 /* Load available exchanges
  */
 
-if (process.argv.length > 2) {
-  let exchanges = []
-
-  process.argv.slice(2).forEach((arg) => {
-    const keyvalue = arg.split('=')
-
-    if (keyvalue.length === 1) {
-      exchanges.push(arg)
-    } else {
-      try {
-        config[keyvalue[0]] = JSON.parse(keyvalue[1])
-      } catch (error) {
-        config[keyvalue[0]] = keyvalue[1]
-      }
-    }
-  })
-
-  if (exchanges.length) {
-    config.exchanges = exchanges
-  }
-}
-
 if (!config.exchanges || !config.exchanges.length) {
   config.exchanges = []
 
@@ -112,7 +90,7 @@ if (process.env.pmx) {
 process.on('SIGINT', function () {
   console.log('SIGINT')
 
-  Promise.all([server.backupTrades()])
+  Promise.all([server.backupTrades(true)])
     .then((data) => {
       console.log('[server/exit] Goodbye')
 

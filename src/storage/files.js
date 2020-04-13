@@ -4,14 +4,12 @@ const getHms = require('../helper').getHms
 
 class FilesStorage {
   constructor(options) {
+    this.name = this.constructor.name
     this.options = options
     this.format = 'trade'
 
     /** @type {{[timestamp: string]: {stream: fs.WriteStream, updatedAt: number}}} */
     this.writableStreams = {}
-
-    /** @type {[string, number, number, number, number][]} */
-    this.cache = [] // last file data
 
     if (!this.options.filesInterval) {
       this.options.filesInterval = 3600000 // 1h file default
@@ -21,7 +19,7 @@ class FilesStorage {
       fs.mkdirSync(this.options.filesLocation)
     }
 
-    console.log(`[storage/files] destination folder: ${this.options.filesLocation}`)
+    console.log(`[storage/${this.name}] destination folder: ${this.options.filesLocation}`)
   }
 
   /**
@@ -63,7 +61,7 @@ class FilesStorage {
       stream: fs.createWriteStream(name, { flags: 'a' })
     }
 
-    console.log(`[storage/files] created writable stream ${new Date(+ts).toUTCString()} => ${name}`)
+    console.log(`[storage/${this.name}] created writable stream ${new Date(+ts).toUTCString()} => ${name}`)
   }
 
   reviewStreams() {
@@ -74,28 +72,8 @@ class FilesStorage {
         this.writableStreams[ts].stream.end()
         delete this.writableStreams[ts]
 
-        console.log(`[storage/files] closed stream ${new Date(+ts).toUTCString()}`)
+        console.log(`[storage/${this.name}] closed stream ${new Date(+ts).toUTCString()}`)
       }
-    }
-  }
-
-  reviewCache() {
-    if (!this.options.api) {
-      return
-    }
-
-    const now = +new Date()
-    const threshold = now - this.options.filesInterval
-    let i
-
-    for (i = 0; i < this.cache.length; i++) {
-      if (this.cache[i][1] > threshold) {
-        break
-      }
-    }
-
-    if (i) {
-      this.cache.splice(0, i)
     }
   }
 
@@ -119,10 +97,6 @@ class FilesStorage {
         output[ts] += chunk[i].join(' ') + '\n'
       }
 
-      if (this.options.api) {
-        this.cache = this.cache.concat(chunk.splice(0, chunk.length))
-      }
-
       const promises = []
 
       for (let ts in output) {
@@ -134,9 +108,9 @@ class FilesStorage {
           new Promise(resolve => {
             this.writableStreams[ts].stream.write(output[ts], err => {
               if (err) {
-                console.log(`[storage/files] stream.write encountered an error\n\t${err}`)
+                console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
               } else {
-                console.log(`[storage/files] stream.write success ${new Date(+ts).toUTCString()}`)
+                // console.log(`[storage/${this.name}] stream.write success ${new Date(+ts).toUTCString()}`)
                 this.writableStreams[ts].updatedAt = now
               }
 
@@ -149,45 +123,12 @@ class FilesStorage {
       Promise.all(promises).then(() => resolve())
     }).then(success => {
       this.reviewStreams()
-      this.reviewCache()
 
       return success
     })
   }
 
-  fetch(from, to, timeframe) {
-    if (this.cache.length && from >= this.cache[0][1]) {
-      if (from > this.cache[this.cache.length - 1][1]) {
-        return Promise.resolve([])
-      }
-
-      console.log(
-        `[storage/files] fetch using cache (${new Date(from).toUTCString()} to ${new Date(
-          to
-        ).toUTCString()})`
-      )
-
-      let fromIndex
-      let toIndex = this.cache.length - 1
-
-      for (let i = 0; i < this.cache.length; i++) {
-        if (typeof fromIndex === 'undefined' && from <= this.cache[i][1]) {
-          fromIndex = i
-        }
-
-        if (this.cache[i][1] > to) {
-          toIndex = i - 1
-          break
-        }
-      }
-
-      console.log(
-        `\tfromIndex: ${fromIndex}\n\ttoIndex: ${toIndex}\n\tcacheLength: ${this.cache.length}`
-      )
-
-      return Promise.resolve(this.cache.slice(fromIndex, toIndex))
-    }
-
+  fetch(from, to) {
     const paths = []
 
     for (
@@ -207,7 +148,7 @@ class FilesStorage {
         return new Promise((resolve, reject) => {
           fs.readFile(filePath, 'utf8', (error, data) => {
             if (error) {
-              // console.error(`[storage/files] unable to get ${path}\n\t`, error.message);
+              // console.error(`[storage/${this.name}] unable to get ${path}\n\t`, error.message);
               return resolve([])
             }
 
