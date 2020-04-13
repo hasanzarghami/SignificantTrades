@@ -62,7 +62,6 @@ export default {
     this.refreshColorsPercentages()
 
     socket.$on('trades', this.onTrades)
-    socket.$on('history', this.onFetch)
     socket.$on('pair', this.onPair)
   },
   mounted() {
@@ -89,13 +88,10 @@ export default {
         element.innerHTML = this.ago(element.getAttribute('timestamp'))
       }
     }, 1000)
-
-    this.onFetch()
   },
   beforeDestroy() {
     socket.$off('pair', this.onPair)
     socket.$off('trades', this.onTrades)
-    socket.$off('history', this.onFetch)
     options.$off('change', this.onSettings)
 
     clearInterval(this.timeAgoInterval)
@@ -131,13 +127,6 @@ export default {
     },
     onPair(pair) {
       this.trades.splice(0, this.trades.length)
-    },
-    onFetch() {
-      if (!this.trades.length && socket.trades.length) {
-        this.onTrades(socket.trades, true)
-
-        socket.$off('history', this.onFetch)
-      }
     },
     onTrades(trades, silent = false) {
       for (let trade of trades) {

@@ -264,11 +264,39 @@ const emitter = new Vue({
           })
         })
         .then(response => {
-          if (!response.data || !response.data.format || response.data.format !== 'trade') {
+          if (!response.data || !response.data.format) {
             return resolve([]);
           }
 
-          const trades = response.data.results;
+          let trades;
+
+          if (response.data.format === 'point') {
+            trades = [];
+
+            for (let i = 0; i < response.data.results.length; i++) {
+              const point = response.data.results[i];
+              const timestamp = +new Date(point.time);
+
+              if (point.vol_buy) {
+                trades.push([point.exchange, timestamp, point.close, point.vol_buy / point.close, 1]);
+              }
+
+              if (point.liquidation_buy) {
+                trades.push([point.exchange, timestamp, point.close, point.liquidation_buy / point.close, 1, 1]);
+              }
+
+              if (point.vol_sell) {
+                trades.push([point.exchange, timestamp, point.close, point.vol_sell / point.close, 0]);
+              }
+
+              if (point.liquidation_sell) {
+                trades.push([point.exchange, timestamp, point.close, point.liquidation_sell / point.close, 0, 1]);
+              }
+            }
+          } else {
+            trades = response.data.results;
+          }
+
           const count = this.trades.length;
 
           if (this.delayed) {
