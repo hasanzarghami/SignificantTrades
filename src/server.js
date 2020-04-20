@@ -378,6 +378,14 @@ class Server extends EventEmitter {
 
         from = Math.floor(from / timeframe) * timeframe
         to = Math.ceil(to / timeframe) * timeframe
+
+        const length = (to - from) / timeframe;
+  
+        if (length > this.options.maxFetchLength) {
+          return res.status(400).json({
+            error: 'too many bars'
+          })
+        }
       } else {
         from = parseInt(from)
         to = parseInt(to)
@@ -387,8 +395,6 @@ class Server extends EventEmitter {
         let _from = parseInt(from)
         from = parseInt(to)
         to = _from
-
-        console.log(`[${ip}] flip interval`)
       }
 
       const fetchStartAt = +new Date()

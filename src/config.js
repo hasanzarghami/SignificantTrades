@@ -27,11 +27,8 @@ const DEFAULTS = {
   // restrict origin (now using regex)
   origin: '.*',
 
-  // max interval an ip can fetch in a limited amount of time (usage restriction, default 7 day)
-  maxFetchUsage: 1000 * 60 * 60 * 24,
-
-  // the limited amount of time in which the user usage will be stored
-  fetchUsageResetInterval: 1000 * 60 * 10,
+  // max n of bars a user can get in 1 call
+  maxFetchLength: 1000,
 
   // admin access type (whitelist, all, none)
   admin: 'whitelist',
