@@ -34,7 +34,9 @@ class InfluxStorage {
           .then(() => {
             Promise.all(this.options.exchanges.map((exchange) => this.getReferencePoint(exchange)))
               .then(() => {
-                this.setupResampling().then
+                if (this.options.api) {
+                  this.setupResampling()
+                }
 
                 resolve()
               })
@@ -359,14 +361,17 @@ class InfluxStorage {
 
   fetch(from, to, timeframe = 60000, exchanges = []) {
     const timeframeText = getHms(timeframe)
+    
+    let query = `SELECT * FROM "significant_trades"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;
+
+    if (exchanges.length) {
+      query += ` AND exchange =~ /${exchanges.join(
+        '|'
+      )}/`
+    }
 
     return this.influx
-      .query(
-        `
-        SELECT * FROM "significant_trades"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms AND exchange =~ /${exchanges.join(
-          '|'
-        )}/
-		`,
+      .query(query,
         {
           precision: 's'
         }
