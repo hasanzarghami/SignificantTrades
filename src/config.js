@@ -136,7 +136,7 @@ if (config.storage) {
       config.storage = [config.storage.trim()]
     }
   }
-  console.log(config.storage);
+  
   for (let storage of config.storage) {
     const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js');
     if (!fs.existsSync(storagePath)) {
@@ -149,5 +149,25 @@ if (config.storage) {
 
 /* Others validations
 */
+
+if (!config.api && config.websocket) {
+  console.warn(`[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`)
+}
+
+if (!config.storage && config.collect) {
+  console.warn(`[warning!] server will not persist any of the data it is receiving`)
+}
+
+if (!config.collect && !config.api) {
+  console.warn(`[warning!] server has no purpose`)
+}
+
+if (!config.storage && !config.collect && (config.websocket || config.api)) {
+  console.warn(`[warning!] ${config.websocket && config.api ? 'ws and api are' : config.websocket ? 'ws is' : 'api is'} enabled but neither storage or collect is enabled (may be useless)`)
+}
+
+if (config.websocket && !config.collect) {
+  console.warn(`[warning!] collect is disabled but websocket is set to ${config.websocket} (may be useless)`)
+}
 
 module.exports = config

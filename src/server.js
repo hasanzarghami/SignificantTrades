@@ -43,9 +43,11 @@ class Server extends EventEmitter {
       if (this.options.collect) {
         console.log(
           `\n[server] collect is enabled`,
-          this.options.aggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
-          this.options.delay ? `\n\twill broadcast trades every ${this.options.delay}ms` : ''
+          this.options.websocket && this.options.aggr ? '\n\twill aggregate every trades that came on same ms (impact only broadcast)' : '',
+          this.options.websocket && this.options.delay ? `\n\twill broadcast trades every ${this.options.delay}ms` : ''
         )
+        console.log(
+          `\tconnect to -> ${this.exchanges.map(a => a.id).join(', ')}`)
         this.handleExchangesEvents()
         this.connectExchanges()
 
@@ -63,6 +65,9 @@ class Server extends EventEmitter {
       
       if (this.options.api || this.options.websocket) {
         this.createHTTPServer()
+      }
+
+      if (this.options.websocket) {
         this.createWSServer()
       }
 
@@ -215,7 +220,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('listening', () => {
-      console.log(`[server] websocket server listening at http://localhost:${this.options.port}/`)
+      console.log(`[server] websocket server listening at localhost:${this.options.port}`)
     })
 
     this.wss.on('connection', (ws, req) => {
@@ -432,7 +437,7 @@ class Server extends EventEmitter {
     })
 
     this.server = app.listen(this.options.port, () => {
-      console.log(`[server] server listening at http://localhost:${this.options.port}/`, !this.options.api ? '(historical api is disabled)' : '')
+      console.log(`[server] http server listening at localhost:${this.options.port}`, !this.options.api ? '(historical api is disabled)' : '')
     })
 
     this.app = app

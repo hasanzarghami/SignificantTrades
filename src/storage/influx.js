@@ -362,7 +362,7 @@ class InfluxStorage {
   fetch(from, to, timeframe = 60000, exchanges = []) {
     const timeframeText = getHms(timeframe)
     
-    let query = `SELECT * FROM "significant_trades"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;
+    let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;
 
     if (exchanges.length) {
       query += ` AND exchange =~ /${exchanges.join(
