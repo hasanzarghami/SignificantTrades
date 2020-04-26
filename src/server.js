@@ -308,8 +308,13 @@ class Server extends EventEmitter {
     const app = express()
 
     const limiter = rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 100 // limit each IP to 100 requests per windowMs
+      windowMs: 15 * 60 * 1000,
+      max: 30,
+      handler: function(req, res) {
+        return res.status(429).json({
+          error: 'too many requests :v'
+        })
+      },
     })
     
     app.set('trust proxy', 1);
