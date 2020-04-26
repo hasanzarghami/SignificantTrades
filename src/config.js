@@ -8,7 +8,7 @@ console.log(`[init] reading config.json...`)
 
 const DEFAULTS = {
   // default pair we track
-  pair: 'BTCUSD',
+  pairs: ['BTCUSD'],
 
   // will connect to exchanges and subscribe to pairs on startup
   collect: true,
@@ -66,7 +66,17 @@ const DEFAULTS = {
   influxTimeframe: 10000,
 
   // downsampling
-  influxResampleTo: [1000 * 30, 1000 * 60, 1000 * 60 * 3, 1000 * 60 * 5, 1000 * 60 * 15],
+  influxResampleTo: [
+    1000 * 30,
+    1000 * 60,
+    1000 * 60 * 3,
+    1000 * 60 * 5,
+    1000 * 60 * 15,
+    1000 * 60 * 30,
+    1000 * 60 * 60 * 2,
+    1000 * 60 * 60 * 4,
+    1000 * 60 * 60 * 24,
+  ],
 
   // preload continuous queries measurements (each influxResampleTo) with N ms of data on startup (default = 24h of data)
   influxPreheatRange: 1000 * 60 * 60 * 24,
@@ -101,17 +111,17 @@ try {
 config = Object.assign(DEFAULTS, config)
 
 /* Node arg based configuration
-*/
+ */
 
 if (process.argv.length > 2) {
   let exchanges = []
-
   process.argv.slice(2).forEach((arg) => {
     const keyvalue = arg.split('=')
 
     if (keyvalue.length === 1) {
       exchanges.push(arg)
     } else {
+      console.log(keyvalue[1]);
       try {
         config[keyvalue[0]] = JSON.parse(keyvalue[1])
       } catch (error) {
@@ -126,36 +136,55 @@ if (process.argv.length > 2) {
 }
 
 /* Validate storage
-*/
+ */
 
 if (config.storage) {
   if (!Array.isArray(config.storage)) {
     if (config.storage.indexOf(',') !== -1) {
-      config.storage = config.storage.split(',').map(a => a.trim())
+      config.storage = config.storage.split(',').map((a) => a.trim())
     } else {
       config.storage = [config.storage.trim()]
     }
   }
-  
+
   for (let storage of config.storage) {
-    const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js');
+    const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js')
     if (!fs.existsSync(storagePath)) {
       throw new Error(`Unknown storage solution "${storagePath}"`)
     }
   }
 } else {
-  config.storage = null;
+  config.storage = null
 }
 
 /* Others validations
-*/
+ */
+
+console.log(config.pairs, typeof config.pairs, Array.isArray(config.pairs));
+
+if (config.pair) {
+  config.pairs = config.pair.split(',');
+  delete config.pair
+}
+
+if (!Array.isArray(config.pairs)) {
+  if (config.pairs) {
+    config.pairs = config.pairs.split(',')
+  } else {
+    config.pairs = []
+  }
+}
 
 if (!config.api && config.websocket) {
-  console.warn(`[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`)
+  console.warn(
+    `[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`
+  )
 }
 
 if (!config.storage && config.collect) {
-  console.warn(`[warning!] server will not persist any of the data it is receiving`)
+  console.warn(
+    `[warning!] server will not persist any of the data it is receiving`
+  )
 }
 
 if (!config.collect && !config.api) {
@@ -163,11 +192,21 @@ if (!config.collect && !config.api) {
 }
 
 if (!config.storage && !config.collect && (config.websocket || config.api)) {
-  console.warn(`[warning!] ${config.websocket && config.api ? 'ws and api are' : config.websocket ? 'ws is' : 'api is'} enabled but neither storage or collect is enabled (may be useless)`)
+  console.warn(
+    `[warning!] ${
+      config.websocket && config.api
+        ? 'ws and api are'
+        : config.websocket
+        ? 'ws is'
+        : 'api is'
+    } enabled but neither storage or collect is enabled (may be useless)`
+  )
 }
 
 if (config.websocket && !config.collect) {
-  console.warn(`[warning!] collect is disabled but websocket is set to ${config.websocket} (may be useless)`)
+  console.warn(
+    `[warning!] collect is disabled but websocket is set to ${config.websocket} (may be useless)`
+  )
 }
 
 module.exports = config

@@ -1,202 +1,94 @@
-const Exchange = require('../exchange');
-const WebSocket = require('ws');
+const Exchange = require('../exchange')
 
 class Bitfinex extends Exchange {
+  constructor(options) {
+    super(options)
 
-	constructor(options) {
-		super(options);
+    this.id = 'bitfinex'
 
-    this.id = 'bitfinex';
+    this.channels = {};
 
-    this.pairs = [
-      'BTCEUR',
-      'BTCJPY',
-      'BTCGBP',
-      'BTCUSD',
-      'ETHEUR',
-      'ETHJPY',
-      'ETHGBP',
-      'ETHUSD',
-      'ETHBTC',
-      'EOSEUR',
-      'EOSJPY',
-      'EOSGBP',
-      'EOSUSD',
-      'EOSBTC',
-      'EOSETH',
-      'LTCUSD',
-      'LTCBTC',
-      'XRPUSD',
-      'XRPBTC',
-      'ETCUSD',
-      'ETCBTC',
-      'NEOEUR',
-      'NEOJPY',
-      'NEOGBP',
-      'IOTAEUR',
-      'IOTAJPY',
-      'IOTAGBP',
-      'IOTAUSD',
-      'IOTABTC',
-      'IOTAETH',
-      'XMRUSD',
-      'XMRBTC',
-      'TRXUSD',
-      'TRXBTC',
-      'TRXETH',
-      'DASHUSD',
-      'DASHBTC',
-      'ZECUSD',
-      'ZECBTC',
-      'SANUSD',
-      'SANBTC',
-      'SANETH',
-      'ZRXUSD',
-      'ZRXBTC',
-      'ZRXETH',
-      'BATUSD',
-      'BATBTC',
-      'BATETH',
-      'SNTETH',
-      'RCNUSD',
-      'RCNBTC',
-      'RCNETH',
-      'TNBUSD',
-      'TNBBTC',
-      'TNBETH',
-      'REPUSD',
-      'REPBTC',
-      'REPETH',
-      'ELFUSD',
-      'ELFBTC',
-      'ELFETH',
-      'FUNUSD',
-      'FUNBTC',
-      'FUNETH',
-      'SPKUSD',
-      'SPKBTC',
-      'SPKETH',
-      'AIDUSD',
-      'AIDBTC',
-      'AIDETH',
-      'MNAUSD',
-      'MNABTC',
-      'MNAETH',
-      'SNGUSD',
-      'SNGBTC',
-      'SNGETH',
-      'RLCUSD',
-      'RLCBTC',
-      'RLCETH',
-      'RRTUSD',
-      'RRTBTC'
-    ];
-
-    this.mapping = pair => {
-      if (this.pairs.indexOf(pair) !== -1) {
-        return pair;
-      }
-
-      return false;
+    this.endpoints = {
+      PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
     }
 
-		this.options = Object.assign({
-			url: 'wss://api.bitfinex.com/ws/2',
-		}, this.options);
-	}
+    this.options = Object.assign(
+      {
+        url: 'wss://api.bitfinex.com/ws/2',
+      },
+      this.options
+    )
+  }
 
-	connect(pair) {
-    if (!super.connect(pair))
-      return;
+  formatProducts(data) {
+    return data.map(a => a.toUpperCase())
+  }
 
-    this.api = new WebSocket(this.getUrl());
-
-		this.api.on('message', event => this.emitData(this.format(event)));
-
-		this.api.on('open', event => {
-      this.channels = {};
-      this.hasReceivedFirstPacket = {};
-
-      this.api.send(JSON.stringify({
+  /**
+   * Sub
+   * @param {WebSocket} api 
+   * @param {string} pair 
+   */
+  subscribe(api, pair) {
+    api.send(
+      JSON.stringify({
         event: 'subscribe',
         channel: 'trades',
-        symbol: 't' + this.pair,
-      }));
+        symbol: 't' + this.match[pair],
+      })
+    )
+  }
 
-      this.api.send(JSON.stringify({
-        event: 'subscribe',
-        channel: 'status',
-        key: 'liq:global'
-      }))
-
-      this.emitOpen(event);
-    });
-
-		this.api.on('close', this.emitClose.bind(this));
-
-    this.api.on('error', this.emitError.bind(this));
-	}
-
-	disconnect() {
-    if (!super.disconnect())
-      return;
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close();
-    }
-	}
-
-	format(event) {
-    const json = JSON.parse(event);
+  onMessage(event) {
+    const json = JSON.parse(event.data)
 
     if (json.event) {
-      this.channels[json.chanId] = json.channel
-      return;
+      if (json.chanId) {
+        this.channels[json.chanId] = json.channel
+      }
+      return
     }
 
     if (!this.channels[json[0]] || json[1] === 'hb') {
-      return;
-    }
-
-    if (!this.hasReceivedFirstPacket[json[0]]) {
-      this.hasReceivedFirstPacket[json[0]] = true;
       return
     }
 
     switch (this.channels[json[0]]) {
       case 'trades':
         if (json[1] === 'te') {
-          this.price = +json[2][3];
+          this.price = +json[2][3]
 
-          return [[
-            this.id,
-            +new Date(json[2][1]),
-            +json[2][3],
-            Math.abs(json[2][2]),
-            json[2][2] < 0 ? 0 : 1
-          ]];
+          this.emitTrades([
+            [
+              this.id,
+              +new Date(json[2][1]),
+              +json[2][3],
+              Math.abs(json[2][2]),
+              json[2][2] < 0 ? 0 : 1,
+            ],
+          ])
         }
-      break;
+        break
       case 'status':
         if (!json[1]) {
           return
         }
 
-        return json[1].filter(a => a[4] === 't' + this.pair).map(a => [
-          this.id,
-          parseInt(a[2]),
-          this.price,
-          Math.abs(a[5]),
-          a[5] > 1 ? 1 : 0,
-          1
-        ])
-      break;
-      default:
-        console.log('unknown channel', json[2]);
-      break;
+        this.emitTrades(
+          json[1]
+            .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
+            .map((a) => [
+              this.id,
+              parseInt(a[2]),
+              this.price,
+              Math.abs(a[5]),
+              a[5] > 1 ? 1 : 0,
+              1,
+            ])
+        )
+        break
     }
-	}
-
+  }
 }
 
-module.exports = Bitfinex;
+module.exports = Bitfinex
