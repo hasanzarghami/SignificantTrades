@@ -9,6 +9,9 @@ class Exchange extends EventEmitter {
   constructor(options) {
     super()
 
+    // debug
+    this.reportedVolume = 0;
+
     /**
      * localPairs
      * @type {string[]}
@@ -28,11 +31,16 @@ class Exchange extends EventEmitter {
     this.match = {}
 
     /**
-     * websocket connections awaiting onOpen event
+     * promises of ws. opens
      * @type {{[url: string]: Promise<WebSocket>}}
      */
     this.connecting = {}
 
+    /**
+     * promises of ws. closes
+     * @type {{[url: string]: Promise<void>}}
+     */
+    this.disconnecting = {}
     
     /**
      * Cached mapping (remotePair => localPair)
@@ -45,13 +53,13 @@ class Exchange extends EventEmitter {
      * 1 timeout = 1 trade being aggregated for 1 pair
      * @type {{[localPair: string]: number]}}
      */
-    this.queuedTradeTimeouts = {};
+    this.aggrTradeTimeouts = {};
     
     /**
      * Trades being aggregated
      * @type {{[localPair: string]: Trade]}}
      */
-    this.queuedTrades = {};
+    this.aggrTrades = {};
 
     this.options = Object.assign(
       {
@@ -87,69 +95,64 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Connect to 1 pair
+   * Link exchange to a pair
    * @param {*} pair
+   * @returns {Promise<WebSocket>}
    */
-  connect(pair) {
-    console.log(this.id, 'connect', pair)
+  link(pair) {
     const match = this.getMatch(pair)
 
     if (!match) {
-      console.log(`[${this.id}.connect] failed to match with ${pair}`)
-
-      return Promise.reject(`[${this.id}.connect] failed to match with ${pair}`)
+      return Promise.reject(new Error(`${this.id} couldn't match with ${pair}`))
     }
 
-    if (this.pairs.indexOf(pair) !== -1) {
-      console.log(`[${this.id}.connect] already listening to ${pair}`)
-
-      return Promise.reject(`[${this.id}.connect] already listening to ${pair}`)
+    if (this.pairs.indexOf(match) !== -1) {
+      return Promise.reject(new Error(`${this.id} already connected to ${pair}`))
     }
 
     this.pairs.push(match)
     this.match[pair] = match
 
+    console.log(`[${this.id}] linking ${pair}`)
+
     return this.bindApi(pair).then(api => {
       this.subscribe(api, pair);
+
+      return api;
     })
   }
 
   /**
-   * Disconnect to 1 pair
+   * Unlink a pair
    * @param {string} pair
+   * @returns {Promise<void>}
    */
-  disconnect(pair) {
-    console.log(this.id, 'disconnect', pair)
-    if (this.pairs.indexOf(pair) === -1) {
-      console.log(
-        `[${this.id}.disconnect] can't disconnect if not connected (${pair})`
-      )
+  unlink(pair) {
+    const api = this.getActiveApiByPair(pair)
 
-      return false
+    if (!this.match[pair] || this.pairs.indexOf(this.match[pair]) === -1) {
+      return Promise.reject(new Error(`${this.id} cannot unlink ${pair} as ${this.id} is not actually connected to it`))
     }
 
-    const api = this.getApi(pair)
+    if (!api) {
+      return Promise.reject(new Error(`couldn't find active api for pair ${pair} in exchange ${this.id}`))
+    }
 
-    this.unsubscribe(api, pair);
+    console.log(`[${this.id}] unlinking ${pair}`)
+
+    // call exchange specific unsubscribe function
+    this.unsubscribe(api, pair)
 
     this.pairs.splice(this.pairs.indexOf(pair), 1)
     delete this.match[pair]
 
-    if (!api) {
-      console.log(
-        `[${this.id}.disconnect] couldn't find active api for "${pair}"`
-      )
-
-      return false
+    if (!api._pairs.length) {
+      console.log('NO remaining pairs for this api')
+      return this.unbindApi(api)
+    } else {
+      console.log(`remaining pairs connected to ${api.url}: ${api._pairs.join(',')}`)
+      return Promise.resolve();
     }
-
-    if (api.pairs.length === 1) {
-      this.unbindApi(pair)
-
-      return null
-    }
-
-    return api
   }
 
   /**
@@ -157,7 +160,7 @@ class Exchange extends EventEmitter {
    * @param {string} pair
    * @returns {WebSocket}
    */
-  getApi(pair) {
+  getActiveApiByPair(pair) {
     const url = this.getUrl(pair)
 
     for (let i = 0; i < this.apis.length; i++) {
@@ -168,118 +171,136 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Create or attach a pair to active websocket api
+   * Create or attach a pair subscription to active websocket api
    * @param {*} pair
    * @returns {Promise<WebSocket>}
    */
   bindApi(pair) {
-    console.log(this.id, 'bind pair', pair)
-    let api = this.getApi(pair)
+    let api = this.getActiveApiByPair(pair)
 
     let toResolve
 
     if (!api) {
       const url = this.getUrl(pair)
-      console.log(this.id, 'initiate ws api from pair', url)
+
+      console.log(`[${this.id}] initiate new ws connection ${url} for pair ${pair}`)
 
       api = new WebSocket(this.getUrl())
 
-      api.pairs = [pair]
+      api._pairs = []
 
       this.apis.push(api)
 
-      toResolve = new Promise((resolve, reject) => {
-        api.onmessage = (event) => {
-          if (this.onMessage(event, api.pairs)) {
-            api.timestamp = getTime()
-          }
-        }
+      api._send = api.send;
+      api.send = (data) => {
+        console.log(`[${this.id}] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`);
 
-        api.onopen = (event) => {
-          console.log(this.id, api.pairs, 'onopen!');
-          resolve(api)
-
-          delete this.connecting[url]
-
-          this.onOpen(event, api.pairs)
-        }
-
-        api.onclose = (event) => {
-          reject()
-
-          this.onClose(event, api.pairs)
-
-          if (api.pairs.length) {
-            console.log('schedule reconnection');
-            setTimeout(() => {
-              this.reconnectApi(api);
-            }, 3000)
-          }
-        }
-
-        api.onerror = (event) => {
-          this.onError(event, api.pairs)
-        }
-      })
-
-      this.connecting[url] = toResolve
-    } else {
-      if (this.connecting[api.url]) {
-        console.log(this.id, 'attach pair to connecting api')
-        toResolve = this.connecting[api.url]
-      } else {
-        console.log(this.id, 'attach pair to connected api')
-        toResolve = Promise.resolve(api)
+        api._send.apply(api, [data]);
       }
 
-      api.pairs.push(pair)
+      api.onmessage = (event) => {
+        if (this.onMessage(event, api._pairs) === true) {
+          api.timestamp = getTime()
+        }
+      }
+
+      api.onopen = (event) => {
+        if (this.connecting[url]) {
+          console.log(`resolve connecting ${url}...`)
+          this.connecting[url](true);
+          delete this.connecting[url]
+        }
+
+        this.onOpen(event, api._pairs)
+      }
+
+      api.onclose = (event) => {
+        if (this.connecting[url]) {
+          console.log(`reject connecting ${url}...`)
+          this.connecting[url](false);
+          delete this.connecting[url]
+        }
+
+        this.onClose(event, api._pairs)
+
+        if (this.disconnecting[url]) {
+          console.log(`resolve disconnecting ${url}...`)
+          this.disconnecting[url](true);
+          delete this.disconnecting[url]
+        }
+
+        if (api._pairs.length) {
+          api._pairs.forEach(pair => this.unlink(pair));
+
+          console.log('schedule reconnection');
+          setTimeout(() => {
+            this.reconnectApi(api);
+          }, 3000)
+        }
+      }
+
+      api.onerror = (event) => {
+        this.onError(event, api._pairs)
+      }
+
+      toResolve = new Promise((resolve, reject) => {
+        this.connecting[url] = (success) => success ? resolve(api) : reject()
+      });
+    } else {
+      if (this.connecting[api.url]) {
+        console.log(`[${this.id}] attach ${pair} to connecting api ${api.url}`)
+        toResolve = this.connecting[api.url]
+      } else {
+        console.log(`[${this.id}] attach ${pair} to connected api ${api.url}`)
+        toResolve = Promise.resolve(api)
+      }
     }
 
     return toResolve
   }
 
   /**
-   * Close websocket api by pair
-   * @param {string} pair
+   * Close websocket api
+   * @param {WebSocket} api
+   * @returns {Promise<void>}
    */
-  unbindApi(pair) {
-    console.log(this.id, 'bind pair', pair)
-    const api = this.getApi(pair)
+  unbindApi(api) {
+    console.log(`[${this.id}] unbind api ${api.url}`)
 
-    if (!api) {
-      console.log(`[${this.id}.unbind] couldn't find active api for "${pair}"`)
-
-      return
+    if (api._pairs.length) {
+      throw new Error(`cannot unbind api that still has pairs linked to it`)
     }
 
-    if (api.readyState < 2) {
-      api.close()
+    let promiseOfClose
+
+    if (api.readyState !== WebSocket.CLOSED) {
+      promiseOfClose = new Promise((resolve, reject) => {
+        if (api.readyState < WebSocket.CLOSING) {
+           api.close()
+        }
+      
+        this.disconnecting[api.url] = (success) => success ? resolve() : reject()
+      });
+    } else {
+      promiseOfClose = Promise.resolve();
     }
 
-    this.apis.splice(this.apis.indexOf(api), 1)
+    return promiseOfClose.then(() => {
+      console.log(`[${this.id}] splice api ${api.url} from exchange`)
+      this.apis.splice(this.apis.indexOf(api), 1)
+    })
   }
 
   /**
    * Reconnect api
    * @param {WebSocket} api
    */
-  reconnectApi(api) {
-    console.log(this.id, 'reconnect api', api.url)
-    const pairs = api.pairs.slice(0, api.pairs.length)
-
-    for (let pair of pairs) {
-      this.disconnect(pair)
-    }
-
-    for (let pair of pairs) {
-      this.connect(pair)
-    }
-
-    this.unbindApi(pairs[0])
-
-    this.bindApi(pairs[0]).then((api) => {
-      api.pairs = pairs
-    })
+  reconnectPairs(pairs) {
+    console.log(`[${this.id}] reconnect pairs ${pairs.join(',')}`)
+    
+    Promise
+      .all(pairs.map(pair => this.unlink(pair)))
+      .then(pairs.map(pair => this.link(pair)))
   }
 
   /**
@@ -420,7 +441,17 @@ class Exchange extends EventEmitter {
    * @param {string} pair 
    */
   subscribe(api, pair) {
-    // should be overrided by exchange class
+    const index = api._pairs.indexOf(pair);
+
+    if (index !== -1) {
+      return false;
+    }
+
+    console.log(this.id, 'push pair', pair, 'to api', api.url)
+
+    api._pairs.push(pair);
+
+    return true;
   }
 
   /**
@@ -429,7 +460,17 @@ class Exchange extends EventEmitter {
    * @param {string} pair 
    */
   unsubscribe(api, pair) {
-    // should be overrided by exchange class
+    const index = api._pairs.indexOf(pair);
+
+    if (index === -1) {
+      return false;
+    }
+
+    console.log(this.id, 'pull pair', pair, 'from api', api.url)
+
+    api._pairs.splice(index, 1);
+    
+    return api.readyState === WebSocket.OPEN;
   }
 
   /**
@@ -455,59 +496,61 @@ class Exchange extends EventEmitter {
 
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
-      const queuedTrade = this.queuedTrades[trade.pair];
+      const aggrTrade = this.aggrTrades[trade.pair];
 
       if (trade.liquidation) {
         output.push(trade)
         continue
       }
 
-      if (queuedTrade) {
+      if (aggrTrade) {
         if (
-          trade.timestamp > queuedTrade.timestamp ||
-          trade.side !== queuedTrade.side
+          trade.timestamp > aggrTrade.timestamp ||
+          trade.side !== aggrTrade.side
         ) {
-          queuedTrade.price /= queuedTrade.size
-          output.push(queuedTrade)
-          this.queuedTrades[trade.pair] = trade
-          this.queuedTrades[trade.pair].price *= this.queuedTrades[trade.pair].size
+          aggrTrade.price /= aggrTrade.size
+          output.push(aggrTrade)
+          this.aggrTrades[trade.pair] = trade
+          this.aggrTrades[trade.pair].price *= this.aggrTrades[trade.pair].size
 
           if (toTimeout.indexOf(trade.pair) === -1) {
-            // will create timeout referencing queuedTrade for this pair
+            // will create timeout referencing aggrTrade for this pair
             toTimeout.push(trade.pair);
           }
 
-          clearTimeout(this.queuedTradeTimeouts[trade.pair])
-          delete this.queuedTradeTimeouts[trade.pair]
+          clearTimeout(this.aggrTradeTimeouts[trade.pair])
+          delete this.aggrTradeTimeouts[trade.pair]
         } else if (
-          trade.timestamp <= queuedTrade.timestamp &&
-          trade.side === queuedTrade.side
+          trade.timestamp <= aggrTrade.timestamp &&
+          trade.side === aggrTrade.side
         ) {
-          queuedTrade.size += +trade.size
-          queuedTrade.price += trade.price * trade.size
+          aggrTrade.size += +trade.size
+          aggrTrade.price += trade.price * trade.size
+        } else {
+          debugger;
         }
       } else {
-        this.queuedTrades[trade.pair] = trade
-        this.queuedTrades[trade.pair].price *= this.queuedTrades[trade.pair].size
+        this.aggrTrades[trade.pair] = trade
+        this.aggrTrades[trade.pair].price *= this.aggrTrades[trade.pair].size
       
         if (toTimeout.indexOf(trade.pair) === -1) {
-          // will create timeout referencing queuedTrade for this pair
+          // will create timeout referencing aggrTrade for this pair
           toTimeout.push(trade.pair);
         }
       }
     }
 
     for (let j = 0; j < toTimeout.length; j++) {
-      if (this.queuedTrades[toTimeout[j]] && !this.queuedTradeTimeouts[toTimeout[j]]) {
-        this.queuedTradeTimeouts[toTimeout[j]] = setTimeout((trade => {
+      if (this.aggrTrades[toTimeout[j]] && !this.aggrTradeTimeouts[toTimeout[j]]) {
+        this.aggrTradeTimeouts[toTimeout[j]] = setTimeout((trade => {
           trade.price /= trade.size
           this.emit('data.aggr', {
             exchange: this.id,
             data: [trade],
           })
-          delete this.queuedTrades[trade.pair]
-          delete this.queuedTradeTimeouts[trade.pair]
-        }).bind(this, [this.queuedTrades[toTimeout[j]]]), 50)
+          delete this.aggrTrades[trade.pair]
+          delete this.aggrTradeTimeouts[trade.pair]
+        }).bind(this, this.aggrTrades[toTimeout[j]]), 50)
       }
     }
 

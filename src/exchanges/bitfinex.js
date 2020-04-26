@@ -30,6 +30,10 @@ class Bitfinex extends Exchange {
    * @param {string} pair 
    */
   subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return;
+    }
+
     api.send(
       JSON.stringify({
         event: 'subscribe',
@@ -39,11 +43,38 @@ class Bitfinex extends Exchange {
     )
   }
 
+  /**
+   * Unsub
+   * @param {WebSocket} api 
+   * @param {string} pair 
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return;
+    }
+
+    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === this.match[pair]);
+    if (!channelsToUnsubscribe.length) {
+      debugger;
+    }
+    for (let id of channelsToUnsubscribe) {
+      api.send(
+        JSON.stringify({
+          event: 'unsubscribe',
+          chanId: id
+        })
+      )
+    }
+  }
+
   onMessage(event) {
     const json = JSON.parse(event.data)
 
     if (json.event) {
       if (json.chanId) {
+        if (this.pairs.indexOf(json.pair) === -1) {
+          debugger;
+        }
         this.channels[json.chanId] = {
           name: json.channel,
           pair: json.pair
@@ -53,19 +84,23 @@ class Bitfinex extends Exchange {
     }
 
     if (!this.channels[json[0]] || json[1] === 'hb') {
+      if (json[1] !== 'hb') {
+        console.warn(`[${this.id}] received unknown event ${event.data}`)
+      }
       return
     }
 
     const channel = this.channels[json[0]];
 
     if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
-      console.log('set hasReceivedInitialData = true for channel', channel.name, channel.pair)
       channel.hasReceivedInitialData = true;
       return
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
       this.price = +json[2][3]
+
+      this.reportedVolume += json[2][3] * Math.abs(json[2][2]);
 
       this.emitTrades([
         {

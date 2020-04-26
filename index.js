@@ -90,7 +90,7 @@ if (process.env.pmx) {
 process.on('SIGINT', function () {
   console.log('SIGINT')
 
-  Promise.all([server.backupTrades(true)])
+  Promise.all([server.backupTrades(true), server.dumpReportedVolume()])
     .then((data) => {
       console.log('[server/exit] Goodbye')
 
