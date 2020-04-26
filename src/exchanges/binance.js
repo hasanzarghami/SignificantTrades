@@ -13,7 +13,7 @@ class Binance extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
-          return 'wss://stream.binance.com:9443/stream?streams=' + this.pairs.map(pair => `${pair}@aggTrade`).join('/')
+          return 'wss://stream.binance.com:9443/stream?streams=' + this.pairs.map(pair => `${pair}@trade`).join('/')
         },
       },
       this.options
@@ -45,17 +45,21 @@ class Binance extends Exchange {
     api.send(
       JSON.stringify({
         method: 'SUBSCRIBE',
-        params: [this.matchs[pair] + '@aggTrade'],
+        params: [this.matchs[pair] + '@trade'],
       })
     )
   }
 
   onMessage(event) {
-    const trade = JSON.parse(event.data)
+    const json = JSON.parse(event.data)
 
-    if (trade && trade.t) {
-      this.emitTrades([[this.id, trade.E, +trade.p, +trade.q, trade.m ? 0 : 1]])
+    if (!json || !json.data) {
+      return false;
     }
+
+    const trade = json.data;
+    
+    this.emitTrades([{exchange: this.id, pair: this.mapPair(trade.s), timestamp: trade.E, price: +trade.p, size: +trade.q, side: trade.m ? 'sell' : 'buy'}])
   }
 }
 

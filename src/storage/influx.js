@@ -1,6 +1,8 @@
 const Influx = require('influx')
 const getHms = require('../helper').getHms
 
+require('../typedef')
+
 class InfluxStorage {
   constructor(options) {
     this.name = this.constructor.name
@@ -57,11 +59,15 @@ class InfluxStorage {
     })
   }
 
+  /**
+   * Create continuous queries if not exists
+   * Preheat continuous queries with *options.influxPreheatRange* ms of data from base measurement
+   *
+   * @memberof InfluxStorage
+   */
   async setupResampling() {
     let from
     let into
-
-    const promises = []
 
     const range = {
       to: +new Date()
@@ -165,8 +171,24 @@ class InfluxStorage {
     })
   }
 
-  getReferencePoint(exchange) {
-    console.log(`[storage/${this.name}] get reference point for exchange ${exchange}`)
+  /**
+   * Get last stored bar for given exchange & pair
+   *
+   * @param {string} exchange
+   * @param {string} pair
+   * @returns {Bar | null}
+   * @memberof InfluxStorage
+   */
+  getReferencePoint(exchange, pair) {
+    if (!exchange) {
+      throw new Error(`cannot get reference point of undefined exchange`)
+    }
+
+    if (!pair) {
+      throw new Error(`cannot get reference point of undefined pair`)
+    }
+    
+    console.log(`[storage/${this.name}] get reference point for exchange ${exchange}/${pair}`)
 
     const now = +new Date()
 
@@ -174,6 +196,10 @@ class InfluxStorage {
 
     if (exchange) {
       where.push(`exchange = '${exchange}'`)
+    }
+
+    if (pair) {
+      where.push(`pair = '${pair}'`)
     }
 
     return this.influx
@@ -193,7 +219,7 @@ class InfluxStorage {
       )
       .then((data) => {
         if (data.length) {
-          this.lastBar[exchange] = data[0]
+          this.lastBar[exchange + pair] = data[0]
 
           console.log(
             `[storage/${this.name}] got ${exchange}'s reference\n\tlast close: ${data[0].close}`
@@ -206,16 +232,32 @@ class InfluxStorage {
       })
   }
 
+  /**
+   * Trigger when save fired from main controller
+   *
+   * @param {Trade[]} trades
+   * @returns {Promise<any>}
+   * @memberof InfluxStorage
+   */
   save(trades) {
     if (!trades || !trades.length) {
       return Promise.resolve()
     }
 
-    const beforeTs = new Date()
+    const groups = groupByPairs(trades);
 
-    // incrment of updated points
-    let updated = 0
+    return Promise.all(Object.keys(groups).map(pair => this.import(groups[pair], pair)))
+  }
 
+  /**
+   * Import the trades to influx db 
+   *
+   * @param {Trade[]} trades
+   * @param {*} pair
+   * @returns {Promise<any>}
+   * @memberof InfluxStorage
+   */
+  import(trades, pair) {
     // array of bars
     let output = []
 
@@ -254,22 +296,17 @@ class InfluxStorage {
           // trades passed in save() contains some of the last batch (trade time = last bar time)
           // recover exchange point of lastbar
           bar[trade[0]] = this.lastBar[trade[0]]
-
-          // will update bar (time + exchange + pair) in influx
-          updated++
         } else {
           // create new point
           bar[trade[0]] = {
             time: tradeTs,
             exchange: trade[0],
-            count: 0,
-            count_buy: 0,
-            count_sell: 0,
-            vol: 0,
-            vol_buy: 0,
-            vol_sell: 0,
-            liquidation_buy: 0,
-            liquidation_sell: 0,
+            cbuy: 0,
+            csell: 0,
+            vbuy: 0,
+            vsell: 0,
+            lbuy: 0,
+            lsell: 0,
             open: null,
             high: 0,
             low: Infinity,
@@ -296,13 +333,11 @@ class InfluxStorage {
 
       if (trade[5] == 1) {
         // trade is a liquidation
-        bar[trade[0]]['liquidation_' + (trade[4] == 1 ? 'buy' : 'sell')] += trade[2] * trade[3]
+        bar[trade[0]]['l' + (trade[4] == 1 ? 'buy' : 'sell')] += trade[2] * trade[3]
       } else {
         // normal trade
-        bar[trade[0]].count++
-        bar[trade[0]]['count_' + (trade[4] == 1 ? 'buy' : 'sell')]++
-        bar[trade[0]].vol += trade[2] * trade[3]
-        bar[trade[0]]['vol_' + (trade[4] == 1 ? 'buy' : 'sell')] += trade[2] * trade[3]
+        bar[trade[0]]['c' + (trade[4] == 1 ? 'buy' : 'sell')]++
+        bar[trade[0]]['v' + (trade[4] == 1 ? 'buy' : 'sell')] += trade[2] * trade[3]
       }
     }
 
@@ -310,14 +345,12 @@ class InfluxStorage {
       .writePoints(
         output.map((chunk, index) => {
           const fields = {
-            count: chunk.count,
-            count_buy: chunk.count_buy,
-            count_sell: chunk.count_sell,
-            vol: chunk.vol,
-            vol_buy: chunk.vol_buy,
-            vol_sell: chunk.vol_sell,
-            liquidation_buy: chunk.liquidation_buy,
-            liquidation_sell: chunk.liquidation_sell
+            cbuy: chunk.cbuy,
+            csell: chunk.csell,
+            vbuy: chunk.vbuy,
+            vsell: chunk.vsell,
+            lbuy: chunk.lbuy,
+            lsell: chunk.lsell
           }
 
           if (chunk.close !== null) {
@@ -333,7 +366,7 @@ class InfluxStorage {
               (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
             tags: {
               exchange: chunk.exchange,
-              pair: 'BTCUSD'
+              pair: pair
             },
             fields: fields,
             timestamp: +chunk.time
@@ -343,23 +376,12 @@ class InfluxStorage {
           precision: 'ms'
         }
       )
-      .then(() => {
-        const afterTs = +new Date()
-
-        /*console.log(
-          `[storage/${this.name}] added ${output.length - updated} points (+${trades.length} trades)${
-            updated ? ', updated ' + updated + ' point' + (updated > 1 ? 's' : '') : ''
-          }, took ${getHms(
-            afterTs - beforeTs
-          )} from ${beforeTs.getHours()}:${beforeTs.getMinutes()}:${beforeTs.getSeconds()}.${beforeTs.getMilliseconds()}`
-        )*/
-      })
       .catch((err) => {
         console.log(err.message)
       })
   }
 
-  fetch(from, to, timeframe = 60000, exchanges = []) {
+  fetch({from, to, timeframe = 60000, exchanges = [], pair}) {
     const timeframeText = getHms(timeframe)
     
     let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;

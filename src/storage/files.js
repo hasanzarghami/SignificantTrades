@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path');
-const getHms = require('../helper').getHms
+const {getHms, groupByPairs} = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -30,9 +30,9 @@ class FilesStorage {
    * @returns {string}
    * @memberof FilesStorage
    */
-  getBackupFilename(date) {
+  getBackupFilename(pair, date) {
     let filename = `
-			${this.options.filesLocation}/${this.options.pair}
+			${this.options.filesLocation}/${pair}
 			_${date.getFullYear()}
 			-${('0' + (date.getMonth() + 1)).slice(-2)}
 			-${('0' + date.getDate()).slice(-2)}
@@ -53,10 +53,11 @@ class FilesStorage {
     return filename.replace(/\s+/g, '');
   }
 
-  addWritableStream(ts) {
-    const name = this.getBackupFilename(new Date(+ts))
+  addWritableStream(pair, ts) {
+    console.log(pair, ts);
+    const name = this.getBackupFilename(pair, new Date(+ts))
 
-    this.writableStreams[ts] = {
+    this.writableStreams[pair + ts] = {
       updatedAt: null,
       stream: fs.createWriteStream(name, { flags: 'a' })
     }
@@ -67,57 +68,73 @@ class FilesStorage {
   reviewStreams() {
     const now = +new Date()
 
-    for (let ts in this.writableStreams) {
-      if (now - this.writableStreams[ts].updatedAt > 1000 * 60 * 10) {
-        this.writableStreams[ts].stream.end()
-        delete this.writableStreams[ts]
+    for (let pairTs in this.writableStreams) {
+      if (now - this.writableStreams[pairTs].updatedAt > 1000 * 60 * 10) {
+        this.writableStreams[pairTs].stream.end()
+        delete this.writableStreams[pairTs]
 
         console.log(`[storage/${this.name}] closed stream ${new Date(+ts).toUTCString()}`)
       }
     }
   }
 
-  save(chunk) {
+  save(trades) {
     const now = +new Date()
 
-    const output = {}
+    const groups = groupByPairs(trades);
+
+    const output = Object.keys(groups).reduce((obj, pair) => {
+      obj[pair] = {}
+      return obj
+    }, {})
 
     return new Promise((resolve, reject) => {
-      if (!chunk.length) {
+      if (!trades.length) {
         return resolve(true)
       }
 
-      for (let i = 0; i < chunk.length; i++) {
-        const ts = Math.floor(chunk[i][1] / this.options.filesInterval) * this.options.filesInterval
+      for (let pair in groups) {
+        for (let i = 0; i < groups[pair].length; i++) {
+          const trade = groups[pair][i];
 
-        if (!output[ts]) {
-          output[ts] = ''
+          const ts = Math.floor(trade.timestamp / this.options.filesInterval) * this.options.filesInterval
+
+          if (!output[pair][ts]) {
+            output[pair][ts] = ''
+          }
+
+          const forWrite = [trade.exchange, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0];
+
+          if (trade.liquidation) {
+            forWrite.push(1);
+          }
+
+          output[pair][ts] += forWrite.join(' ') + '\n'
         }
-
-        output[ts] += chunk[i].join(' ') + '\n'
       }
 
       const promises = []
 
-      for (let ts in output) {
-        if (!this.writableStreams[ts]) {
-          this.addWritableStream(ts)
-        }
+      for (let pair in output) {
+        for (let ts in output[pair]) {
+          if (!this.writableStreams[pair + ts]) {
+            this.addWritableStream(pair, ts)
+          }
 
-        promises.push(
-          new Promise(resolve => {
-            this.writableStreams[ts].stream.write(output[ts], err => {
-              if (err) {
-                console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
-              } else {
-                // console.log(`[storage/${this.name}] stream.write success ${new Date(+ts).toUTCString()}`)
-                this.writableStreams[ts].updatedAt = now
-              }
+          promises.push(
+            new Promise(resolve => {
+              this.writableStreams[pair + ts].stream.write(output[pair][ts], err => {
+                if (err) {
+                  console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
+                } else {
+                  this.writableStreams[pair + ts].updatedAt = now
+                }
 
-              resolve()
+                resolve()
+              })
             })
-          })
-        )
+          )
+        }
       }
 
       Promise.all(promises).then(() => resolve())
@@ -128,7 +145,7 @@ class FilesStorage {
     })
   }
 
-  fetch(from, to) {
+  fetch({from, to, pair}) {
     const paths = []
 
     for (
@@ -136,7 +153,7 @@ class FilesStorage {
       i <= to;
       i += this.options.filesInterval
     ) {
-      paths.push(this.getBackupFilename(new Date(i)))
+      paths.push(this.getBackupFilename(pair, new Date(i)))
     }
 
     if (!paths.length) {

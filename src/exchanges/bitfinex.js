@@ -44,7 +44,10 @@ class Bitfinex extends Exchange {
 
     if (json.event) {
       if (json.chanId) {
-        this.channels[json.chanId] = json.channel
+        this.channels[json.chanId] = {
+          name: json.channel,
+          pair: json.pair
+        }
       }
       return
     }
@@ -53,40 +56,45 @@ class Bitfinex extends Exchange {
       return
     }
 
-    switch (this.channels[json[0]]) {
-      case 'trades':
-        if (json[1] === 'te') {
-          this.price = +json[2][3]
+    const channel = this.channels[json[0]];
 
-          this.emitTrades([
-            [
-              this.id,
-              +new Date(json[2][1]),
-              +json[2][3],
-              Math.abs(json[2][2]),
-              json[2][2] < 0 ? 0 : 1,
-            ],
-          ])
-        }
-        break
-      case 'status':
-        if (!json[1]) {
-          return
-        }
+    if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
+      console.log('set hasReceivedInitialData = true for channel', channel.name, channel.pair)
+      channel.hasReceivedInitialData = true;
+      return
+    }
 
-        this.emitTrades(
-          json[1]
-            .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
-            .map((a) => [
-              this.id,
-              parseInt(a[2]),
-              this.price,
-              Math.abs(a[5]),
-              a[5] > 1 ? 1 : 0,
-              1,
-            ])
-        )
-        break
+    if (channel.name === 'trades' && json[1] === 'te') {
+      this.price = +json[2][3]
+
+      this.emitTrades([
+        {
+          exchange: this.id,
+          pair: this.mapPair(channel.pair),
+          timestamp: +new Date(json[2][1]),
+          price: +json[2][3],
+          size: Math.abs(json[2][2]),
+          side: json[2][2] < 0 ? 'sell' : 'buy',
+        },
+      ])
+
+      return true;
+    } else if (channel.name === 'status' && json[1]) {
+      this.emitTrades(
+        json[1]
+          .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
+          .map((a) => { 
+            return {
+            exchange: this.id,
+            pair: this.mapPair(a[4].substring(1)),
+            timestamp: parseInt(a[2]),
+            price: this.price,
+            size: Math.abs(a[5]),
+            side: a[5] > 1 ? 'buy' : 'sell',
+            liquidation: true,
+          }})
+      )
+      return true;
     }
   }
 }

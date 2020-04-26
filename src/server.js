@@ -1,8 +1,7 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const getIp = require('./helper').getIp
-const getHms = require('./helper').getHms
+const {getIp, getHms, getPair, groupByPairs, getTime} = require('./helper')
 const express = require('express')
 const rateLimit = require('express-rate-limit')
 
@@ -50,10 +49,18 @@ class Server extends EventEmitter {
         this.handleExchangesEvents()
         this.connectExchanges()
 
+        setTimeout(() => {
+          this.connectPairs(['XMRUSD']);
+        }, 10000)
+
+        setTimeout(() => {
+          this.disconnectPairs(['BTCUSDT']);
+        }, 10000)
+
         // profile exchanges connections (keep alive)
         this.profilerInterval = setInterval(
           this.monitorExchangesActivity.bind(this),
-          1000 * 60 * 3
+          1000
         )
 
         if (this.storages) {
@@ -177,7 +184,7 @@ class Server extends EventEmitter {
 
         if (!this.options.aggr) {
           if (!this.options.delay) {
-            this.broadcast(event.data)
+            this.broadcastTrades(event.data)
           } else {
             Array.prototype.push.apply(this.queue, event.data)
           }
@@ -187,7 +194,7 @@ class Server extends EventEmitter {
       if (this.options.aggr) {
         exchange.on('data.aggr', (event) => {
           if (!this.options.delay) {
-            this.broadcast(event.data)
+            this.broadcastTrades(event.data)
           } else {
             Array.prototype.push.apply(this.queue, event.data)
           }
@@ -195,14 +202,14 @@ class Server extends EventEmitter {
       }
 
       exchange.on('open', (event) => {
-        this.broadcast({
+        this.broadcastJson({
           type: 'exchange_connected',
           id: exchange.id,
         })
       })
 
       exchange.on('err', (event) => {
-        this.broadcast({
+        this.broadcastJson({
           type: 'exchange_error',
           id: exchange.id,
           message: event.message,
@@ -210,7 +217,7 @@ class Server extends EventEmitter {
       })
 
       exchange.on('close', (event) => {
-        this.broadcast({
+        this.broadcastJson({
           type: 'exchange_disconnected',
           id: exchange.id,
         })
@@ -235,17 +242,20 @@ class Server extends EventEmitter {
 
     this.wss.on('connection', (ws, req) => {
       const ip = getIp(req)
+      const pair = getPair(req, this.options.pairs[0])
 
       this.stats.hits++
 
+      ws.pair = pair
+      
       const data = {
         type: 'welcome',
-        pair: this.options.pairs,
+        pair,
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
             id: exchange.id,
-            connected: exchange.connected,
+            connected: exchange.pairs.length
           }
         }),
       }
@@ -324,7 +334,10 @@ class Server extends EventEmitter {
       max: 100, // limit each IP to 100 requests per windowMs
     })
 
-    //  apply to all requests
+    // otherwise ip are all the same
+    app.set('trust proxy', 1);
+
+    // apply to all requests
     app.use(limiter)
 
     app.all('/*', (req, res, next) => {
@@ -395,6 +408,21 @@ class Server extends EventEmitter {
         let to = req.params.to
         let timeframe = req.params.timeframe
         let exchanges = req.params.exchanges
+        let pair = req.params.pair;
+        
+        if (pair) {
+          if (!/^[A-Z]+$/.test(pair)) {
+            return res.status(400).json({
+              error: 'pair must be string full cap only',
+            })
+          } else if (this.options.pairs.indexOf(pair) === -1) {
+            return res.status(400).json({
+              error: 'unsupported pair',
+            })
+          }
+        } else {
+          pair = this.options.pairs[0] || 'BTCUSD';
+        }
 
         if (!this.options.api || !this.storages) {
           return res.status(501).json({
@@ -448,7 +476,9 @@ class Server extends EventEmitter {
         const fetchStartAt = +new Date()
 
         ;(storage
-          ? storage.fetch(from, to, timeframe, exchanges)
+          ? storage.fetch({
+            from, to, timeframe, exchanges, pair
+          })
           : Promise.resolve([])
         )
           .then((output) => {
@@ -515,11 +545,7 @@ class Server extends EventEmitter {
         } exchange(s)`
       )
 
-      for (let exchange of this.exchanges) {
-        for (let pair of this.options.pairs) {
-          const promise = exchange.connect(pair).catch(() => {})
-        }
-      }
+      this.connectPairs(this.options.pairs)
     })
 
     if (this.options.delay) {
@@ -528,18 +554,46 @@ class Server extends EventEmitter {
           return
         }
 
-        this.broadcast(this.queue)
+        this.broadcastTrades(this.queue)
 
         this.queue = []
       }, this.options.delay || 1000)
     }
   }
+  
+  /**
+   * Trigger subscribe to pairs on all activated exchanges
+   * @param {string[]} pairs
+   * @memberof Server
+   */
+  connectPairs(pairs) {
+    console.log('connect pairs', pairs);
+    for (let exchange of this.exchanges) {
+      for (let pair of pairs) {
+        const promise = exchange.connect(pair).catch(() => {})
+      }
+    }
+  }
+  
+  /**
+   * Trigger unsubscribe to pairs on all activated exchanges
+   * @param {string[]} pairs
+   * @memberof Server
+   */
+  disconnectPairs(pairs) {
+    console.log('disconnect pairs', pairs);
+    for (let exchange of this.exchanges) {
+      for (let pair of pairs) {
+        const promise = exchange.disconnect(pair).catch(() => {})
+      }
+    }
+  }
 
-  broadcast(data) {
+  broadcastJson(data) {
     if (!this.wss) {
       return
     }
-
+    
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify(data))
@@ -547,8 +601,22 @@ class Server extends EventEmitter {
     })
   }
 
+  broadcastTrades(trades) {
+    if (!this.wss) {
+      return
+    }
+
+    const groups = groupByPairs(trades, true);
+    
+    this.wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN && groups[client.pair]) {
+        client.send(JSON.stringify(groups[client.pair]))
+      }
+    })
+  }
+
   monitorExchangesActivity() {
-    const now = +new Date()
+    const now = getTime()
 
     this.exchanges.forEach((exchange) => {
       if (!exchange.apis.length) {
@@ -562,6 +630,8 @@ class Server extends EventEmitter {
               i
             ].pairs.join(',')}'s api`
           )
+
+          exchange.reconnectApi(exchange.apis[i])
         } else if (now - exchange.apis[i].timestamp > 1000 * 60 * 5) {
           console.log(
             '[warning] ' +

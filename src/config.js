@@ -10,6 +10,11 @@ const DEFAULTS = {
   // default pair we track
   pairs: ['BTCUSD'],
 
+  // mapping can be useful if you track btcusdt but save it as BTCUSD
+  mapping: {
+    // 'BTCUSD': /btcusdt/
+  },
+
   // will connect to exchanges and subscribe to pairs on startup
   collect: true,
 
@@ -173,6 +178,20 @@ if (!Array.isArray(config.pairs)) {
   } else {
     config.pairs = []
   }
+}
+
+if (!config.pairs.length) {
+  config.pairs = ['BTCUSD'];
+}
+
+for (let localPair in config.mapping) {
+  if (typeof config.mapping[localPair] === 'string') {
+    config.mapping[localPair] = new RegExp(config.mapping[localPair], 'i');
+  }
+}
+
+if (config.exchanges && typeof config.exchanges === 'string') {
+  config.exchanges = config.exchanges.split(',');
 }
 
 if (!config.api && config.websocket) {

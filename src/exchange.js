@@ -1,6 +1,9 @@
 const EventEmitter = require('events')
 const axios = require('axios')
 const WebSocket = require('ws')
+const getTime = require('./helper').getTime
+
+require('./typedef')
 
 class Exchange extends EventEmitter {
   constructor(options) {
@@ -19,7 +22,7 @@ class Exchange extends EventEmitter {
     this.apis = []
 
     /**
-     * localPair => exchangePair
+     * Active match (localPair => remotePair)
      * @type {{[localPair: string]: string}}
      */
     this.match = {}
@@ -29,6 +32,26 @@ class Exchange extends EventEmitter {
      * @type {{[url: string]: Promise<WebSocket>}}
      */
     this.connecting = {}
+
+    
+    /**
+     * Cached mapping (remotePair => localPair)
+     * @type {{[remotePair: string]: string]}}
+     */
+    this.mapping = {};
+    
+    /**
+     * Cached active timeouts by pair
+     * 1 timeout = 1 trade being aggregated for 1 pair
+     * @type {{[localPair: string]: number]}}
+     */
+    this.queuedTradeTimeouts = {};
+    
+    /**
+     * Trades being aggregated
+     * @type {{[localPair: string]: Trade]}}
+     */
+    this.queuedTrades = {};
 
     this.options = Object.assign(
       {
@@ -167,7 +190,9 @@ class Exchange extends EventEmitter {
 
       toResolve = new Promise((resolve, reject) => {
         api.onmessage = (event) => {
-          this.onMessage(event, api.pairs)
+          if (this.onMessage(event, api.pairs)) {
+            api.timestamp = getTime()
+          }
         }
 
         api.onopen = (event) => {
@@ -409,13 +434,13 @@ class Exchange extends EventEmitter {
 
   /**
    * Emit trade to server
-   * @param {*} trades
+   * @param {Trade[]} trades
    */
   emitTrades(trades) {
     if (!trades || !trades.length) {
       return
     }
-console.log('trades', trades);
+
     this.emit('data', {
       exchange: this.id,
       data: trades,
@@ -426,56 +451,64 @@ console.log('trades', trades);
     }
 
     const output = []
+    const toTimeout = [];
 
     for (let i = 0; i < trades.length; i++) {
       const trade = trades[i]
+      const queuedTrade = this.queuedTrades[trade.pair];
 
-      if (trade[5]) {
-        if (this.queueTrades) {
-          this.queuedTrade[2] /= this.queuedTrade[3]
-          output.push(this.queuedTrade)
-          delete this.queuedTrade
-          clearTimeout(this.queuedTradeTimeout)
-          delete this.queuedTradeTimeout
-        }
+      if (trade.liquidation) {
         output.push(trade)
         continue
       }
 
-      if (this.queuedTrade) {
+      if (queuedTrade) {
         if (
-          trade[1] > this.queuedTrade[1] ||
-          trade[4] !== this.queuedTrade[4]
+          trade.timestamp > queuedTrade.timestamp ||
+          trade.side !== queuedTrade.side
         ) {
-          this.queuedTrade[2] /= this.queuedTrade[3]
-          output.push(this.queuedTrade)
-          this.queuedTrade = trade.slice(0, trade.length)
-          this.queuedTrade[2] *= this.queuedTrade[3]
-          clearTimeout(this.queuedTradeTimeout)
-          delete this.queuedTradeTimeout
+          queuedTrade.price /= queuedTrade.size
+          output.push(queuedTrade)
+          this.queuedTrades[trade.pair] = trade
+          this.queuedTrades[trade.pair].price *= this.queuedTrades[trade.pair].size
+
+          if (toTimeout.indexOf(trade.pair) === -1) {
+            // will create timeout referencing queuedTrade for this pair
+            toTimeout.push(trade.pair);
+          }
+
+          clearTimeout(this.queuedTradeTimeouts[trade.pair])
+          delete this.queuedTradeTimeouts[trade.pair]
         } else if (
-          trade[1] <= this.queuedTrade[1] &&
-          trade[4] === this.queuedTrade[4]
+          trade.timestamp <= queuedTrade.timestamp &&
+          trade.side === queuedTrade.side
         ) {
-          this.queuedTrade[3] += +trade[3]
-          this.queuedTrade[2] += trade[2] * trade[3]
+          queuedTrade.size += +trade.size
+          queuedTrade.price += trade.price * trade.size
         }
       } else {
-        this.queuedTrade = trade.slice(0, trade.length)
-        this.queuedTrade[2] *= this.queuedTrade[3]
+        this.queuedTrades[trade.pair] = trade
+        this.queuedTrades[trade.pair].price *= this.queuedTrades[trade.pair].size
+      
+        if (toTimeout.indexOf(trade.pair) === -1) {
+          // will create timeout referencing queuedTrade for this pair
+          toTimeout.push(trade.pair);
+        }
       }
     }
 
-    if (this.queuedTrade && !this.queuedTradeTimeout) {
-      this.queuedTradeTimeout = setTimeout(() => {
-        this.queuedTrade[2] /= this.queuedTrade[3]
-        this.emit('data.aggr', {
-          exchange: this.id,
-          data: [this.queuedTrade],
-        })
-        delete this.queuedTrade
-        delete this.queuedTradeTimeout
-      }, 50)
+    for (let j = 0; j < toTimeout.length; j++) {
+      if (this.queuedTrades[toTimeout[j]] && !this.queuedTradeTimeouts[toTimeout[j]]) {
+        this.queuedTradeTimeouts[toTimeout[j]] = setTimeout((trade => {
+          trade.price /= trade.size
+          this.emit('data.aggr', {
+            exchange: this.id,
+            data: [trade],
+          })
+          delete this.queuedTrades[trade.pair]
+          delete this.queuedTradeTimeouts[trade.pair]
+        }).bind(this, [this.queuedTrades[toTimeout[j]]]), 50)
+      }
     }
 
     if (output.length) {
@@ -484,6 +517,24 @@ console.log('trades', trades);
         data: output,
       })
     }
+  }
+
+  mapPair(remotePair) {
+   if (this.mapping[remotePair]) {
+     return this.mapping[remotePair]
+   } 
+
+   for (let localPair in this.options.mapping) {
+     if (this.options.mapping[localPair].test(remotePair)) {
+       this.mapping[remotePair] = localPair;
+       
+       return this.mapping[remotePair]
+     }
+   }
+
+   this.mapping[remotePair] = remotePair;
+
+   return remotePair
   }
 }
 
