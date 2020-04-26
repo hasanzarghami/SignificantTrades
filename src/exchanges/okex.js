@@ -69,7 +69,7 @@ class Okex extends Exchange {
 
       this.api.binaryType = 'arraybuffer'
 
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(event.data))
+      this.api.onmessage = event => this.emitTrades(this.formatLiveTrades(event.data))
 
       this.api.onopen = (e) => {
         this.api.send(

@@ -21,9 +21,9 @@ export default {
     this.$el.removeEventListener('click', this._onClick)
   },
   methods: {
-    click() {
+    click(event) {
       if (this.notice.click) {
-        this.notice.click(this)
+        this.notice.click.apply(this, [event])
       } else {
         this.hide()
       }

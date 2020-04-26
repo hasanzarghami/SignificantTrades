@@ -36,7 +36,7 @@ class Gdax extends Exchange {
 
       this.api = new WebSocket(this.getUrl())
 
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
+      this.api.onmessage = event => this.emitTrades(this.formatLiveTrades(JSON.parse(event.data)))
 
       this.api.onopen = (e) => {
         this.api.send(
@@ -70,7 +70,7 @@ class Gdax extends Exchange {
 
   formatLiveTrades(json) {
     if (json && json.size > 0) {
-      this.queueTrades([
+      this.emitTrades([
         {
           exchange: this.id,
           timestamp: +new Date(json.time),

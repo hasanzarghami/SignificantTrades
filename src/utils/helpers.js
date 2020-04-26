@@ -1,6 +1,10 @@
 import store from '../store'
 
+export const PROXY_URL = process.env.PROXY_URL
+export const API_URL = process.env.API_URL
+export const API_SUPPORTED_PAIRS = process.env.API_SUPPORTED_PAIRS ? process.env.API_SUPPORTED_PAIRS.map(a => a.toUpperCase()) : []
 export const APPLICATION_START_TIME = +new Date()
+export const FIRST_TIME = localStorage.getItem('settings') === null
 export const MASTER_DOMAIN = /aggr.trade$/.test(window.location.hostname)
 export const TOUCH_SUPPORTED = (function() {
   var prefixes = ' -webkit- -moz- -o- -ms- '.split(' ')

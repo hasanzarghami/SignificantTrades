@@ -35,7 +35,7 @@ class Bitstamp extends Exchange {
     return new Promise((resolve, reject) => {
       this.api = new WebSocket(this.getUrl())
 
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
+      this.api.onmessage = event => this.emitTrades(this.formatLiveTrades(JSON.parse(event.data)))
 
       this.api.onopen = (e) => {
         for (let pair of this.pairs) {

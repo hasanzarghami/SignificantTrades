@@ -1,5 +1,7 @@
 import Vue from 'vue'
 import Axios from 'axios'
+import path from 'path';
+
 
 import Kraken from '../exchanges/kraken'
 import Bitmex from '../exchanges/bitmex'
@@ -17,7 +19,7 @@ import Bybit from '../exchanges/bybit'
 import Ftx from '../exchanges/ftx'
 
 import store from '../store'
-import { MASTER_DOMAIN } from '../utils/helpers'
+import { FIRST_TIME, API_SUPPORTED_PAIRS, API_URL, formatAmount } from '../utils/helpers'
 
 const QUEUE = {};
 const REFS = {}
@@ -37,10 +39,6 @@ let activeExchanges = [];
 const emitter = new Vue({
   data() {
     return {
-      API_URL: null,
-      API_SUPPORTED_PAIRS: null,
-      PROXY_URL: null,
-
       exchanges: [
         new Bitmex(),
         new Bitfinex(),
@@ -77,9 +75,6 @@ const emitter = new Vue({
     showSlippage() {
       return store.state.settings.showSlippage
     },
-    chartRange() {
-      return store.state.settings.chartRange
-    },
     aggregateTrades() {
       return store.state.settings.aggregateTrades
     },
@@ -100,10 +95,14 @@ const emitter = new Vue({
     }
   },
   created() {
+    if (FIRST_TIME) {
+      this.getOptimalThresholds(store.state.settings.pair);
+    }
+
     store.subscribe((mutation) => {
       switch (mutation.type) {
-        case 'app/EXCHANGE_UPDATED':
-          activeExchanges = this.actives.slice(0, this.actives.length)
+        case 'settings/SET_PAIR':
+          this.getOptimalThresholds(mutation.payload)
         break;
         case 'settings/TOGGLE_AGGREGATION':
           if (!this.toggleAggregation && queueInterval) {
@@ -252,21 +251,6 @@ const emitter = new Vue({
     },
     initialize() {
       console.log(`[sockets] initializing ${this.exchanges.length} exchange(s)`)
-
-      if (process.env.API_URL) {
-        this.API_URL = process.env.API_URL
-        !MASTER_DOMAIN && console.info(`[sockets] API_URL = ${this.API_URL}`)
-
-        if (process.env.API_SUPPORTED_PAIRS) {
-          this.API_SUPPORTED_PAIRS = process.env.API_SUPPORTED_PAIRS.map(a => a.toUpperCase())
-          !MASTER_DOMAIN && console.info(`[sockets] API_SUPPORTED_PAIRS = ${this.API_SUPPORTED_PAIRS}`)
-        }
-      }
-
-      if (process.env.PROXY_URL) {
-        this.PROXY_URL = process.env.PROXY_URL
-        !MASTER_DOMAIN && console.info(`[sockets] PROXY_URL = ${this.PROXY_URL}`)
-      }
 
       setTimeout(this.connectExchanges.bind(this))
 
@@ -427,10 +411,10 @@ const emitter = new Vue({
       return trade.slippage
     },
     canFetch() {
-      return this.API_URL && (!this.API_SUPPORTED_PAIRS || this.API_SUPPORTED_PAIRS.indexOf(this.pair) !== -1)
+      return API_URL && (!API_SUPPORTED_PAIRS || API_SUPPORTED_PAIRS.indexOf(this.pair) !== -1)
     },
     getApiUrl(from, to) {
-      let url = this.API_URL
+      let url = API_URL
 
       url = url.replace(/\{from\}/, from)
       url = url.replace(/\{to\}/, to)
@@ -576,6 +560,27 @@ const emitter = new Vue({
         to: data[data.length - 1].timestamp
       }
     },
+    getOptimalThresholds() {
+      if (!API_URL) {
+        return
+      }
+
+      Axios.get(path.join(API_URL, 'ratio')).then(response => response.data).then(({ ratio, pair }) => {
+        const thresholds = [50000, 100000, 1000000, 10000000];
+
+        for (let threshold of thresholds) {
+          threshold *= ratio
+        }
+
+        store.dispatch('app/showNotice', {
+          type: 'error',
+          title: `Thresholds for ${pair}<br>${thresholds.map(a => formatAmount(a)).join(', ')}`,
+          click: (event) => {
+            console.log('not implemented')
+          }
+        });
+      })
+    }
   }
 })
 

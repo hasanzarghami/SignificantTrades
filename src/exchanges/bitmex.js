@@ -29,7 +29,7 @@ class Bitmex extends Exchange {
   
       this.quotedInUSD = /USD$/.test(this.pair) || /^XBT/.test(this.pair)
   
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
+      this.api.onmessage = event => this.emitTrades(this.formatLiveTrades(JSON.parse(event.data)))
       this.api.onopen = (e) => {
         this.emitOpen(e)
   
@@ -52,7 +52,7 @@ class Bitmex extends Exchange {
     }
   }
 
-  /*queueTrades(trades) {
+  /*emitTrades(trades) {
     if (!trades.length) {
       return
     }

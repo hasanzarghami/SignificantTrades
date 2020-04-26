@@ -26,7 +26,7 @@ class Hitbtc extends Exchange {
 
       this.api = new WebSocket(this.getUrl())
 
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
+      this.api.onmessage = event => this.emitTrades(this.formatLiveTrades(JSON.parse(event.data)))
 
       this.api.onopen = (e) => {
         this.api.send(

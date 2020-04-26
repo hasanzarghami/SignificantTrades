@@ -34,7 +34,7 @@
 
 <script>
 import { mapState } from 'vuex'
-import { MASTER_DOMAIN, formatPrice, formatAmount, movingAverage, countDecimals } from './utils/helpers'
+import { MASTER_DOMAIN, formatPrice, formatAmount, movingAverage, countDecimals, FIRST_TIME } from './utils/helpers'
 
 import socket from './services/socket'
 import touchevent from './utils/touchevent'
@@ -78,7 +78,8 @@ export default {
 
       showSettings: false,
       showStatistics: false,
-      calculateOptimalPrice: true
+      calculateOptimalPrecision: true,
+      calculateOptimalThreshold: FIRST_TIME
     }
   },
   computed: {
@@ -97,7 +98,7 @@ export default {
       switch (mutation.type) {
         case 'settings/SET_PAIR':
           socket.connectExchanges(mutation.payload)
-          this.calculateOptimalPrice = true
+          this.calculateOptimalPrecision = true
           break
       }
     })
@@ -173,7 +174,7 @@ export default {
 
       const activesExchangesLength = this.actives.length;
 
-      if (this.calculateOptimalPrice) {
+      if (this.calculateOptimalPrecision) {
         decimals = [];
       }
 
@@ -182,7 +183,7 @@ export default {
           continue
         }
         
-        if (this.calculateOptimalPrice) {
+        if (this.calculateOptimalPrecision) {
           decimals.push(countDecimals(exchange.price))
         }
 
@@ -197,11 +198,18 @@ export default {
       if (total) {
         price = price / total
 
-        if (this.calculateOptimalPrice && total >= activesExchangesLength / 2) {
+        if (this.calculateOptimalPrecision && total >= activesExchangesLength / 2) {
           const optimalDecimal = Math.round(decimals.reduce((a, b) => a + b, 0) / decimals.length);
           this.$store.commit('app/SET_OPTIMAL_DECIMAL', optimalDecimal)
 
-          delete this.calculateOptimalPrice;
+          if (calculateOptimalThreshold) {
+            this.$store.commit('app/SET_THRESHOLD_AMOUNT', {
+              index: 0,
+              amount: 
+            })
+          }
+
+          delete this.calculateOptimalPrecision;
         }
       }
 
