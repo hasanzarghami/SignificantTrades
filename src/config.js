@@ -228,4 +228,8 @@ if (config.websocket && !config.collect) {
   )
 }
 
+if (!config.debug) {
+  console.debug = function() {}
+}
+
 module.exports = config

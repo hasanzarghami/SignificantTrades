@@ -54,15 +54,18 @@ class FilesStorage {
   }
 
   addWritableStream(pair, ts) {
-    console.log(pair, ts);
-    const name = this.getBackupFilename(pair, new Date(+ts))
+    const date = new Date(+ts);
+    if (!(date instanceof Date) || !isFinite(date)) {
+      debugger
+    }
+    const name = this.getBackupFilename(pair, date)
 
     this.writableStreams[pair + ts] = {
       updatedAt: null,
       stream: fs.createWriteStream(name, { flags: 'a' })
     }
 
-    console.log(`[storage/${this.name}] created writable stream ${new Date(+ts).toUTCString()} => ${name}`)
+    console.log(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${name}`)
   }
 
   reviewStreams() {

@@ -69,8 +69,6 @@ class Binance extends Exchange {
       return;
     }
 
-    console.log(`[${this.id}] send unsubscribe event (pair: ${pair}, id: ${this.subscriptions[pair]})`)
-
     api.send(
       JSON.stringify({
         method: 'UNSUBSCRIBE',

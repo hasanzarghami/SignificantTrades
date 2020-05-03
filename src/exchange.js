@@ -103,17 +103,17 @@ class Exchange extends EventEmitter {
     const match = this.getMatch(pair)
 
     if (!match) {
-      return Promise.reject(new Error(`${this.id} couldn't match with ${pair}`))
+      return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
     if (this.pairs.indexOf(match) !== -1) {
-      return Promise.reject(new Error(`${this.id} already connected to ${pair}`))
+      return Promise.reject(`${this.id} already connected to ${pair}`)
     }
 
     this.pairs.push(match)
     this.match[pair] = match
 
-    console.log(`[${this.id}] linking ${pair}`)
+    console.debug(`[${this.id}] linking ${pair}`)
 
     return this.bindApi(pair).then(api => {
       this.subscribe(api, pair);
@@ -138,7 +138,7 @@ class Exchange extends EventEmitter {
       return Promise.reject(new Error(`couldn't find active api for pair ${pair} in exchange ${this.id}`))
     }
 
-    console.log(`[${this.id}] unlinking ${pair}`)
+    console.debug(`[${this.id}] unlinking ${pair}`)
 
     // call exchange specific unsubscribe function
     this.unsubscribe(api, pair)
@@ -147,10 +147,8 @@ class Exchange extends EventEmitter {
     delete this.match[pair]
 
     if (!api._pairs.length) {
-      console.log('NO remaining pairs for this api')
       return this.unbindApi(api)
     } else {
-      console.log(`remaining pairs connected to ${api.url}: ${api._pairs.join(',')}`)
       return Promise.resolve();
     }
   }
@@ -183,7 +181,7 @@ class Exchange extends EventEmitter {
     if (!api) {
       const url = this.getUrl(pair)
 
-      console.log(`[${this.id}] initiate new ws connection ${url} for pair ${pair}`)
+      console.debug(`[${this.id}] initiate new ws connection ${url} for pair ${pair}`)
 
       api = new WebSocket(this.getUrl())
 
@@ -193,7 +191,7 @@ class Exchange extends EventEmitter {
 
       api._send = api.send;
       api.send = (data) => {
-        console.log(`[${this.id}] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`);
+        console.debug(`[${this.id}] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${api.url}`);
 
         api._send.apply(api, [data]);
       }
@@ -206,7 +204,6 @@ class Exchange extends EventEmitter {
 
       api.onopen = (event) => {
         if (this.connecting[url]) {
-          console.log(`resolve connecting ${url}...`)
           this.connecting[url](true);
           delete this.connecting[url]
         }
@@ -216,7 +213,6 @@ class Exchange extends EventEmitter {
 
       api.onclose = (event) => {
         if (this.connecting[url]) {
-          console.log(`reject connecting ${url}...`)
           this.connecting[url](false);
           delete this.connecting[url]
         }
@@ -224,7 +220,6 @@ class Exchange extends EventEmitter {
         this.onClose(event, api._pairs)
 
         if (this.disconnecting[url]) {
-          console.log(`resolve disconnecting ${url}...`)
           this.disconnecting[url](true);
           delete this.disconnecting[url]
         }
@@ -232,7 +227,8 @@ class Exchange extends EventEmitter {
         if (api._pairs.length) {
           api._pairs.forEach(pair => this.unlink(pair));
 
-          console.log('schedule reconnection');
+          console.log(`[${this.id}] connection closed unexpectedly, schedule reconnection`);
+          
           setTimeout(() => {
             this.reconnectApi(api);
           }, 3000)
@@ -265,7 +261,7 @@ class Exchange extends EventEmitter {
    * @returns {Promise<void>}
    */
   unbindApi(api) {
-    console.log(`[${this.id}] unbind api ${api.url}`)
+    console.debug(`[${this.id}] unbind api ${api.url}`)
 
     if (api._pairs.length) {
       throw new Error(`cannot unbind api that still has pairs linked to it`)
@@ -286,7 +282,7 @@ class Exchange extends EventEmitter {
     }
 
     return promiseOfClose.then(() => {
-      console.log(`[${this.id}] splice api ${api.url} from exchange`)
+      console.debug(`[${this.id}] splice api ${api.url} from exchange`)
       this.apis.splice(this.apis.indexOf(api), 1)
     })
   }
@@ -296,7 +292,7 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    */
   reconnectPairs(pairs) {
-    console.log(`[${this.id}] reconnect pairs ${pairs.join(',')}`)
+    console.debug(`[${this.id}] reconnect pairs ${pairs.join(',')}`)
     
     Promise
       .all(pairs.map(pair => this.unlink(pair)))
@@ -375,7 +371,7 @@ class Exchange extends EventEmitter {
             this.products = formatedProducts
           }
 
-          console.log(`[${this.id}] saving products`)
+          console.debug(`[${this.id}] saving products`)
         } else {
           this.products = null
         }
@@ -391,7 +387,7 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs pairs attached to ws at opening
    */
   onOpen(event, pairs) {
-    console.log(`[${this.id}] ${pairs.join(',')}'s api connected`)
+    console.debug(`[${this.id}] ${pairs.join(',')}'s api connected`)
 
     this.emit('open', event)
   }
@@ -411,7 +407,7 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs
    */
   onError(event, pairs) {
-    console.log(`[${this.id}] ${pairs.join(',')}'s api errored`, event)
+    console.debug(`[${this.id}] ${pairs.join(',')}'s api errored`, event)
     this.emit('err', event)
   }
 
@@ -421,7 +417,7 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs
    */
   onClose(event, pairs) {
-    console.log(`[${this.id}] ${pairs.join(',')}'s api closed`)
+    console.debug(`[${this.id}] ${pairs.join(',')}'s api closed`)
     this.emit('close', event)
   }
 
@@ -447,8 +443,6 @@ class Exchange extends EventEmitter {
       return false;
     }
 
-    console.log(this.id, 'push pair', pair, 'to api', api.url)
-
     api._pairs.push(pair);
 
     return true;
@@ -465,8 +459,6 @@ class Exchange extends EventEmitter {
     if (index === -1) {
       return false;
     }
-
-    console.log(this.id, 'pull pair', pair, 'from api', api.url)
 
     api._pairs.splice(index, 1);
     
