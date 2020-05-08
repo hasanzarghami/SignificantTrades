@@ -1,6 +1,5 @@
 const Influx = require('influx')
 const getHms = require('../helper').getHms
-
 class InfluxStorage {
   constructor(options) {
     this.name = this.constructor.name
@@ -11,6 +10,7 @@ class InfluxStorage {
     }
 
     this.lastBar = {}
+    this.lastClose = {}
     this.options = options
   }
 
@@ -194,6 +194,10 @@ class InfluxStorage {
       .then((data) => {
         if (data.length) {
           this.lastBar[exchange] = data[0]
+          
+          if (typeof data[0].close === 'number') {
+            this.lastClose[exchange] = data[0].close
+          }
 
           console.log(
             `[storage/${this.name}] got ${exchange}'s reference\n\tlast close: ${data[0].close}`
@@ -217,7 +221,10 @@ class InfluxStorage {
     let updated = 0
 
     // array of bars
-    let output = []
+    let bars = []
+
+    // array of liquidations
+    let liquidations = [];
 
     // current bar ({} of exchanges)
     let bar = {}
@@ -231,6 +238,10 @@ class InfluxStorage {
 
       // trade timestamp floored to timeframe
       if (trade) {
+        if (trade[5] == 1) {
+          liquidations.push(trade);
+        }
+
         tradeTs = Math.floor(trade[1] / this.options.influxTimeframe) * this.options.influxTimeframe
       }
 
@@ -238,7 +249,11 @@ class InfluxStorage {
         for (let exchange in bar) {
           this.lastBar[exchange] = bar[exchange]
 
-          output.push(this.lastBar[exchange])
+          if (typeof bar[exchange].close === 'number') {
+            this.lastClose[exchange] = bar[exchange].close
+          }
+
+          bars.push(this.lastBar[exchange])
         }
 
         if (!trade) {
@@ -276,29 +291,28 @@ class InfluxStorage {
             close: null
           }
 
-          if (this.lastBar[trade[0]] && this.lastBar[trade[0]].close) {
+          if (typeof this.lastClose[trade[0]] === 'number') {
             // this bar open = last bar close (from last save or getReferencePoint on startup)
             bar[trade[0]].open = bar[trade[0]].high = bar[trade[0]].low = bar[
               trade[0]
-            ].close = this.lastBar[trade[0]].close
+            ].close = this.lastClose[trade[0]]
           }
         }
       }
-
-      if (bar[trade[0]].open === null) {
-        // is a new bar, and
-        bar[trade[0]].open = +trade[2]
-      }
-
-      bar[trade[0]].high = Math.max(bar[trade[0]].high, +trade[2])
-      bar[trade[0]].low = Math.min(bar[trade[0]].low, +trade[2])
-      bar[trade[0]].close = +trade[2]
 
       if (trade[5] == 1) {
         // trade is a liquidation
         bar[trade[0]]['liquidation_' + (trade[4] == 1 ? 'buy' : 'sell')] += trade[2] * trade[3]
       } else {
-        // normal trade
+        if (bar[trade[0]].open === null) {
+          // is a new bar, and
+          bar[trade[0]].open = +trade[2]
+        }
+  
+        bar[trade[0]].high = Math.max(bar[trade[0]].high, +trade[2])
+        bar[trade[0]].low = Math.min(bar[trade[0]].low, +trade[2])
+        bar[trade[0]].close = +trade[2]
+  
         bar[trade[0]].count++
         bar[trade[0]]['count_' + (trade[4] == 1 ? 'buy' : 'sell')]++
         bar[trade[0]].vol += trade[2] * trade[3]
@@ -306,9 +320,12 @@ class InfluxStorage {
       }
     }
 
-    return this.influx
+    const promises = [];
+
+    if (bars.length) {
+      promises.push(this.influx
       .writePoints(
-        output.map((chunk, index) => {
+        bars.map((chunk, index) => {
           const fields = {
             count: chunk.count,
             count_buy: chunk.count_buy,
@@ -343,20 +360,41 @@ class InfluxStorage {
           precision: 'ms'
         }
       )
-      .then(() => {
-        const afterTs = +new Date()
-
-        /*console.log(
-          `[storage/${this.name}] added ${output.length - updated} points (+${trades.length} trades)${
-            updated ? ', updated ' + updated + ' point' + (updated > 1 ? 's' : '') : ''
-          }, took ${getHms(
-            afterTs - beforeTs
-          )} from ${beforeTs.getHours()}:${beforeTs.getMinutes()}:${beforeTs.getSeconds()}.${beforeTs.getMilliseconds()}`
-        )*/
-      })
       .catch((err) => {
-        console.log(err.message)
-      })
+        console.error('influx write failed (bars)', err.message)
+      }))
+    }
+
+    if (liquidations.length) {
+      promises.push(this.influx
+        .writePoints(
+          liquidations.map((trade, index) => {
+            const fields = {
+              size: +trade[2],
+              price: +trade[3],
+              side: trade[4] == 1 ? 'buy' : 'sell',
+            }
+  
+            return {
+              measurement: 'liquidations',
+              tags: {
+                exchange: trade[0],
+                pair: 'BTCUSD'
+              },
+              fields: fields,
+              timestamp: +trade[1]
+            }
+          }),
+          {
+            precision: 'ms'
+          }
+        )
+        .catch((err) => {
+          console.error('influx write failed (bars)', err.message)
+        }))
+    }
+
+    return Promise.all(promises);
   }
 
   fetch(from, to, timeframe = 60000, exchanges = []) {
