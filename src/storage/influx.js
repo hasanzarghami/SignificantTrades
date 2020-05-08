@@ -390,7 +390,7 @@ class InfluxStorage {
           }
         )
         .catch((err) => {
-          console.error('influx write failed (bars)', err.message)
+          console.error('influx write failed (liquidation)', err.message)
         }))
     }
 
