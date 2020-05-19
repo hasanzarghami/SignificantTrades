@@ -74,7 +74,6 @@ const DEFAULTS = {
   influxResampleTo: [
     1000 * 30,
     1000 * 60,
-    1000 * 60 * 3,
     1000 * 60 * 5,
     1000 * 60 * 15,
     1000 * 60 * 30,
@@ -126,7 +125,7 @@ if (process.argv.length > 2) {
     if (keyvalue.length === 1) {
       exchanges.push(arg)
     } else {
-      console.log(keyvalue[1]);
+      console.log(keyvalue[1])
       try {
         config[keyvalue[0]] = JSON.parse(keyvalue[1])
       } catch (error) {
@@ -165,33 +164,39 @@ if (config.storage) {
 /* Others validations
  */
 
-console.log(config.pairs, typeof config.pairs, Array.isArray(config.pairs));
+console.log(config.pairs, typeof config.pairs, Array.isArray(config.pairs))
 
 if (config.pair) {
-  config.pairs = config.pair.split(',');
+  config.pairs = config.pair.split(',')
   delete config.pair
 }
 
 if (!Array.isArray(config.pairs)) {
   if (config.pairs) {
-    config.pairs = config.pairs.split(',')
+    config.pairs = config.pairs
+      .split(',')
+      .map((a) => a.trim())
+      .filter((a) => a.length)
   } else {
     config.pairs = []
   }
 }
 
 if (!config.pairs.length) {
-  config.pairs = ['BTCUSD'];
+  config.pairs = ['BTCUSD']
 }
 
 for (let localPair in config.mapping) {
   if (typeof config.mapping[localPair] === 'string') {
-    config.mapping[localPair] = new RegExp(config.mapping[localPair], 'i');
+    config.mapping[localPair] = new RegExp(config.mapping[localPair], 'i')
   }
 }
 
 if (config.exchanges && typeof config.exchanges === 'string') {
-  config.exchanges = config.exchanges.split(',');
+  config.exchanges = config.exchanges
+    .split(',')
+    .map((a) => a.trim())
+    .filter((a) => a.length)
 }
 
 if (!config.api && config.websocket) {
@@ -229,7 +234,7 @@ if (config.websocket && !config.collect) {
 }
 
 if (!config.debug) {
-  console.debug = function() {}
+  console.debug = function () {}
 }
 
 module.exports = config

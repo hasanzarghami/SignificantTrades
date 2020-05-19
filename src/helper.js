@@ -1,10 +1,6 @@
-SERVER_TIME = +new Date();
-setInterval(() => (SERVER_TIME = +new Date()))
+const config = require('./config')
 
 module.exports = {
-  getTime() {
-    return SERVER_TIME
-  },
   getIp(req) {
     let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
@@ -29,6 +25,20 @@ module.exports = {
     return pair.toUpperCase();
   },
 
+  mapPair(pair) {
+    for (let localPair in config.mapping) {
+      if (config.mapping[localPair].test(pair)) {
+        return localPair
+      }
+    }
+
+    return pair
+  },
+
+  ID() {
+    return Math.random().toString(36).substr(2, 9);
+  },
+
   getHms(timestamp, round) {
     var h = Math.floor(timestamp / 1000 / 3600)
     var m = Math.floor(((timestamp / 1000) % 3600) / 60)
@@ -43,6 +53,20 @@ module.exports = {
       output += (output.length ? ', ' : '') + (timestamp - s * 1000) + 'ms'
 
     return output.trim()
+  },
+
+  ago(timestamp) {
+    const seconds = Math.floor((new Date() - timestamp) / 1000)
+    let interval, output
+  
+    if ((interval = Math.floor(seconds / 31536000)) > 1) output = interval + 'y'
+    else if ((interval = Math.floor(seconds / 2592000)) >= 1) output = interval + 'm'
+    else if ((interval = Math.floor(seconds / 86400)) >= 1) output = interval + 'd'
+    else if ((interval = Math.floor(seconds / 3600)) >= 1) output = interval + 'h'
+    else if ((interval = Math.floor(seconds / 60)) >= 1) output = interval + 'm'
+    else output = Math.ceil(seconds) + 's'
+  
+    return output
   },
 
   groupByPairs(trades, toArray = false) {

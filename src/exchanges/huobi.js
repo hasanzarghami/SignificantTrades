@@ -1,294 +1,192 @@
-const Exchange = require('../exchange');
-const WebSocket = require('ws');
-const pako = require('pako');
+const Exchange = require('../exchange')
+const pako = require('pako')
 
 class Huobi extends Exchange {
+  constructor(options) {
+    super(options)
 
-	constructor(options) {
-		super(options);
+    this.id = 'huobi'
 
-    this.id = 'huobi';
+    this.types = []
+    this.contractTypesAliases = {
+      this_week: 'CW',
+      next_week: 'NW',
+      quarter: 'CQ',
+    }
 
-    this.pairs = [
-      'NASETH',
-      'EOSETH',
-      'ZECUSDT',
-      'EVXBTC',
-      'MDSETH',
-      'SMTETH',
-      'TRXETH',
-      'THETAUSDT',
-      'LUNETH',
-      'SMTUSDT',
-      'BCHBTC',
-      'LETUSDT',
-      'GNXETH',
-      'MTLBTC',
-      'CHATETH',
-      'QTUMUSDT',
-      'SNTBTC',
-      'WPRBTC',
-      'ELFETH',
-      'ZILBTC',
-      'UTKBTC',
-      'SBTCBTC',
-      'TNTBTC',
-      'NEOUSDT',
-      'MCOBTC',
-      'OSTETH',
-      'BT2BTC',
-      'HSRETH',
-      'TOPCETH',
-      'SALTETH',
-      'AIDOCETH',
-      'WAXBTC',
-      'DTAETH',
-      'BTCUSDT',
-      'GASETH',
-      'NEOBTC',
-      'BTMBTC',
-      'BLZETH',
-      'BATETH',
-      'APPCBTC',
-      'CMTBTC',
-      'ONTBTC',
-      'QTUMETH',
-      'IOSTBTC',
-      'REQBTC',
-      'BTMETH',
-      'RUFFBTC',
-      'ZECBTC',
-      'DGDETH',
-      'DATETH',
-      'STKETH',
-      'HTETH',
-      'QUNETH',
-      'ELFBTC',
-      'CMTETH',
-      'CTXCETH',
-      'SNTUSDT',
-      'MDSUSDT',
-      'STORJUSDT',
-      'WAXETH',
-      'POWRBTC',
-      'SNCBTC',
-      'VENUSDT',
-      'TNBETH',
-      'SWFTCETH',
-      'EOSBTC',
-      'LINKETH',
-      'HTUSDT',
-      'RDNBTC',
-      'LUNBTC',
-      'GNXBTC',
-      'ELABTC',
-      'LETETH',
-      'IOSTUSDT',
-      'EVXETH',
-      'ACTETH',
-      'BCHUSDT',
-      'ICXETH',
-      'BCXBTC',
-      'MTNETH',
-      'PROPYETH',
-      'XRPUSDT',
-      'ICXBTC',
-      'THETAETH',
-      'SNCETH',
-      'DBCETH',
-      'ITCUSDT',
-      'SMTBTC',
-      'SRNETH',
-      'ETHUSDT',
-      'ITCBTC',
-      'OMGBTC',
-      'STKBTC',
-      'MDSBTC',
-      'TOPCBTC',
-      'ADXBTC',
-      'ETCBTC',
-      'KNCBTC',
-      'CVCBTC',
-      'QSPETH',
-      'BTGBTC',
-      'EDUBTC',
-      'ZLAETH',
-      'MTXETH',
-      'EOSUSDT',
-      'RCNBTC',
-      'UTKETH',
-      'RCNETH',
-      'GNTUSDT',
-      'APPCETH',
-      'WICCBTC',
-      'YEEBTC',
-      'YEEETH',
-      'OMGUSDT',
-      'LINKBTC',
-      'XEMUSDT',
-      'HSRUSDT',
-      'DASHBTC',
-      'QUNBTC',
-      'QASHETH',
-      'DTABTC',
-      'AIDOCBTC',
-      'DATBTC',
-      'RUFFETH',
-      'SALTBTC',
-      'ELAETH',
-      'IOSTETH',
-      'THETABTC',
-      'LETBTC',
-      'DTAUSDT',
-      'SOCETH',
-      'ELAUSDT',
-      'ZILUSDT',
-      'MANABTC',
-      'XRPBTC',
-      'ONTETH',
-      'LTCUSDT',
-      'DBCBTC',
-      'BCDBTC',
-      'SWFTCBTC',
-      'CVCUSDT',
-      'CTXCBTC',
-      'NASUSDT',
-      'GNTETH',
-      'TRXUSDT',
-      'HTBTC',
-      'ENGETH',
-      'PAYETH',
-      'CVCETH',
-      'TNBBTC',
-      'MEEETH',
-      'POWRETH',
-      'BLZBTC',
-      'PAYBTC',
-      'ADXETH',
-      'EKOETH',
-      'SRNBTC',
-      'OCNETH',
-      'VENETH',
-      'ABTETH',
-      'BIFIBTC',
-      'ACTBTC',
-      'ETCUSDT',
-      'OSTBTC',
-      'MCOETH',
-      'ABTBTC',
-      'STORJBTC',
-      'VENBTC',
-      'GNTBTC',
-      'LSKBTC',
-      'EKOBTC',
-      'LTCBTC',
-      'OCNBTC',
-      'RUFFUSDT',
-      'WPRETH',
-      'ASTBTC',
-      'DASHUSDT',
-      'DGDBTC',
-      'ZILETH',
-      'ZRXBTC',
-      'ETHBTC',
-      'REQETH',
-      'TRXBTC',
-      'WICCETH',
-      'NASBTC',
-      'MEEBTC',
-      'ENGBTC',
-      'LSKETH',
-      'RPXBTC',
-      'TNTETH',
-      'MTXBTC',
-      'SOCBTC',
-      'EDUETH',
-      'HSRBTC',
-      'QTUMBTC',
-      'QSPBTC',
-      'BATBTC',
-      'QASHBTC',
-      'ITCETH',
-      'XEMBTC',
-      'MANAETH',
-      'GASBTC',
-      'MTNBTC',
-      'CHATBTC',
-      'BT1BTC',
-      'ZLABTC',
-      'OMGETH',
-      'PROPYBTC',
-      'RDNETH',
-      'ELFUSDT'
-    ];
+    this.endpoints = {
+      PRODUCTS: [
+        'https://api.huobi.pro/v1/common/symbols',
+        'https://api.hbdm.com/api/v1/contract_contract_info',
+      ],
+    }
 
-    this.mapping = pair => {
-      pair = pair.replace(/USD$/, 'USDT');
+    this.options = Object.assign(
+      {
+        url: (pair) => {
+          if (this.types[pair] === 'futures') {
+            return 'wss://www.hbdm.com/ws'
+          } else {
+            return 'wss://api.huobi.pro/ws'
+          }
+        },
+      },
+      this.options
+    )
+  }
 
-      if (this.pairs.indexOf(pair) !== -1) {
-        return pair.toLowerCase();
+  getMatch(pair) {
+    let remotePair = this.products[pair]
+
+    if (!remotePair) {
+      for (let name in this.products) {
+        if (pair === this.products[name]) {
+          remotePair = this.products[name]
+          break
+        }
       }
-
-      return false;
     }
 
-		this.options = Object.assign({
-			url: 'wss://api.huobi.pro/ws',
-		}, this.options);
-	}
-
-	connect(pair) {
-    if (!super.connect(pair))
-      return;
-
-    this.api = new WebSocket(this.getUrl());
-
-		this.api.on('message', event => this.emitData(this.format(event)));
-
-		this.api.on('open', event => {
-      this.api.send(JSON.stringify({
-        sub: 'market.' + this.pair + '.trade.detail',
-        id: this.pair,
-      }));
-
-      this.emitOpen(event);
-    });
-
-		this.api.on('close', this.emitClose.bind(this));
-
-    this.api.on('error', this.emitError.bind(this));
-	}
-
-	disconnect() {
-    if (!super.disconnect())
-      return;
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close();
+    if (remotePair) {
+      if (remotePair.indexOf('_') !== -1) {
+        this.types[remotePair] = 'futures'
+      } else {
+        this.types[remotePair] = 'spot'
+      }
     }
-	}
 
-	format(event) {
-    const json = JSON.parse(pako.inflate(event, {to: 'string'}));
+    return remotePair || false
+  }
+
+  formatProducts(response) {
+    const products = {}
+    const specs = {}
+
+    const types = ['spot', 'futures']
+
+    response.forEach((data, index) => {
+      data.data.forEach((product) => {
+        let pair
+
+        switch (types[index]) {
+          case 'spot':
+            pair = (
+              product['base-currency'] + product['quote-currency']
+            ).toUpperCase()
+            products[pair] = pair
+            break
+          case 'futures':
+            pair =
+              product.symbol +
+              '_' +
+              this.contractTypesAliases[product.contract_type]
+            products[
+              product.symbol + 'USD' + '-' + product.contract_type.toUpperCase()
+            ] = pair
+            products[product.contract_code] = pair
+            specs[pair] = +product.contract_size
+            break
+        }
+      })
+    })
+
+    return {
+      products,
+      specs,
+    }
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    const remotePair = this.match[pair]
+
+    api.send(
+      JSON.stringify({
+        sub:
+          'market.' +
+          (this.types[remotePair] === 'futures'
+            ? remotePair.toUpperCase()
+            : remotePair.toLowerCase()) +
+          '.trade.detail',
+        id: remotePair,
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const remotePair = this.match[pair]
+
+    api.send(
+      JSON.stringify({
+        unsub:
+          'market.' +
+          (this.types[remotePair] === 'futures'
+            ? remotePair.toUpperCase()
+            : remotePair.toLowerCase()) +
+          '.trade.detail',
+        id: remotePair,
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
 
     if (!json) {
-      return;
+      console.log(json)
+      return
     }
 
     if (json.ping) {
-      this.api.readyState === 1 && this.api.send(JSON.stringify({pong: json.ping}));
-      return;
+      api.send(JSON.stringify({ pong: json.ping }))
+      return
     } else if (json.tick && json.tick.data && json.tick.data.length) {
-      return json.tick.data.map(trade => [
-        this.id,
-        trade.ts,
-        +trade.price,
-        +trade.amount,
-        trade.direction === 'buy' ? 1 : 0
-      ]);
-    }
-	}
+      const remotePair = json.ch
+        .replace(/market.(.*).trade.detail/, '$1')
+        .toUpperCase()
 
+      this.emitTrades(
+        api.id,
+        json.tick.data.map((trade) => {
+          let amount = +trade.amount
+          let name = this.id
+
+          if (typeof this.specs[remotePair] !== 'undefined') {
+            amount = (amount * this.specs[remotePair]) / trade.price
+            name += '_futures'
+          }
+
+          return {
+            exchange: name,
+            pair: remotePair,
+            timestamp: trade.ts,
+            price: +trade.price,
+            size: amount,
+            side: trade.direction,
+          }
+        })
+      )
+
+      return true
+    }
+  }
 }
 
-module.exports = Huobi;
+module.exports = Huobi

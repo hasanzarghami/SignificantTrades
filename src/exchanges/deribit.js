@@ -1,442 +1,128 @@
-const Exchange = require('../exchange');
-const WebSocket = require('ws');
+const Exchange = require('../exchange')
 
 class Deribit extends Exchange {
+  constructor(options) {
+    super(options)
 
-	constructor(options) {
-		super(options);
+    this.id = 'deribit'
 
-		this.id = 'deribit';
+    this.endpoints = {
+      PRODUCTS: 'https://www.deribit.com/api/v1/public/getinstruments',
+    }
 
-		this.mapping = {
-			"BTC-28JUN19-6500-C": "BTC-28JUN19-6500-C",
-			"BTC-31MAY19-5000-C": "BTC-31MAY19-5000-C",
-			"BTC-3MAY19-6000-P": "BTC-3MAY19-6000-P",
-			"BTC-28JUN19-20000-C": "BTC-28JUN19-20000-C",
-			"BTC-10MAY19-6000-C": "BTC-10MAY19-6000-C",
-			"BTC-31MAY19-4000-C": "BTC-31MAY19-4000-C",
-			"BTC-27SEP19-1500-P": "BTC-27SEP19-1500-P",
-			"BTC-27DEC19-6500-P": "BTC-27DEC19-6500-P",
-			"BTC-27DEC19-12000-C": "BTC-27DEC19-12000-C",
-			"BTC-31MAY19-4750-P": "BTC-31MAY19-4750-P",
-			"BTC-27SEP19-5500-C": "BTC-27SEP19-5500-C",
-			"BTC-27DEC19-12000-P": "BTC-27DEC19-12000-P",
-			"BTC-10MAY19-6250-C": "BTC-10MAY19-6250-C",
-			"BTC-10MAY19-5250-C": "BTC-10MAY19-5250-C",
-			"BTC-27DEC19-7000-C": "BTC-27DEC19-7000-C",
-			"BTC-28JUN19-1500-P": "BTC-28JUN19-1500-P",
-			"BTC-31MAY19-6500-C": "BTC-31MAY19-6500-C",
-			"BTC-28JUN19-12000-C": "BTC-28JUN19-12000-C",
-			"BTC-10MAY19-4750-C": "BTC-10MAY19-4750-C",
-			"BTC-28JUN19-4000-C": "BTC-28JUN19-4000-C",
-			"BTC-27SEP19-3750-C": "BTC-27SEP19-3750-C",
-			"BTC-27SEP19-4750-C": "BTC-27SEP19-4750-C",
-			"BTC-27SEP19-4250-P": "BTC-27SEP19-4250-P",
-			"BTC-27SEP19-12000-C": "BTC-27SEP19-12000-C",
-			"BTC-28JUN19-15000-P": "BTC-28JUN19-15000-P",
-			"BTC-27SEP19": "BTC-27SEP19",
-			"BTC-3MAY19-5000-P": "BTC-3MAY19-5000-P",
-			"BTC-28JUN19-14000-C": "BTC-28JUN19-14000-C",
-			"BTC-31MAY19-4250-C": "BTC-31MAY19-4250-C",
-			"BTC-10MAY19-4500-C": "BTC-10MAY19-4500-C",
-			"BTC-28JUN19-3500-P": "BTC-28JUN19-3500-P",
-			"BTC-3MAY19-4875-P": "BTC-3MAY19-4875-P",
-			"BTC-3MAY19-5750-C": "BTC-3MAY19-5750-C",
-			"BTC-3MAY19-4750-P": "BTC-3MAY19-4750-P",
-			"BTC-28JUN19-7500-C": "BTC-28JUN19-7500-C",
-			"BTC-28JUN19-13000-C": "BTC-28JUN19-13000-C",
-			"BTC-28JUN19-3750-C": "BTC-28JUN19-3750-C",
-			"BTC-28JUN19-3500-C": "BTC-28JUN19-3500-C",
-			"BTC-28JUN19-9000-P": "BTC-28JUN19-9000-P",
-			"BTC-27SEP19-4000-P": "BTC-27SEP19-4000-P",
-			"BTC-31MAY19-5000-P": "BTC-31MAY19-5000-P",
-			"BTC-28JUN19-4250-P": "BTC-28JUN19-4250-P",
-			"BTC-31MAY19-3500-C": "BTC-31MAY19-3500-C",
-			"BTC-27SEP19-4000-C": "BTC-27SEP19-4000-C",
-			"BTC-28JUN19-4250-C": "BTC-28JUN19-4250-C",
-			"BTC-3MAY19-4250-P": "BTC-3MAY19-4250-P",
-			"BTC-27SEP19-3500-P": "BTC-27SEP19-3500-P",
-			"BTC-31MAY19-6500-P": "BTC-31MAY19-6500-P",
-			"BTC-3MAY19-5250-P": "BTC-3MAY19-5250-P",
-			"BTC-27SEP19-8000-P": "BTC-27SEP19-8000-P",
-			"BTC-27SEP19-10000-P": "BTC-27SEP19-10000-P",
-			"BTC-28JUN19-10000-P": "BTC-28JUN19-10000-P",
-			"BTC-27SEP19-11000-C": "BTC-27SEP19-11000-C",
-			"BTC-31MAY19-6250-C": "BTC-31MAY19-6250-C",
-			"BTC-27DEC19-13000-P": "BTC-27DEC19-13000-P",
-			"BTC-28JUN19-7500-P": "BTC-28JUN19-7500-P",
-			"BTC-28JUN19-5500-C": "BTC-28JUN19-5500-C",
-			"BTC-27SEP19-2000-C": "BTC-27SEP19-2000-C",
-			"BTC-31MAY19-6000-P": "BTC-31MAY19-6000-P",
-			"BTC-27DEC19-15000-C": "BTC-27DEC19-15000-C",
-			"BTC-3MAY19-5625-P": "BTC-3MAY19-5625-P",
-			"BTC-10MAY19-5750-P": "BTC-10MAY19-5750-P",
-			"BTC-27DEC19-7500-P": "BTC-27DEC19-7500-P",
-			"BTC-28JUN19-4500-P": "BTC-28JUN19-4500-P",
-			"BTC-31MAY19-5250-P": "BTC-31MAY19-5250-P",
-			"BTC-27DEC19-5000-C": "BTC-27DEC19-5000-C",
-			"BTC-27DEC19-5000-P": "BTC-27DEC19-5000-P",
-			"BTC-27DEC19-6000-C": "BTC-27DEC19-6000-C",
-			"BTC-31MAY19-5500-P": "BTC-31MAY19-5500-P",
-			"BTC-31MAY19-5750-C": "BTC-31MAY19-5750-C",
-			"BTC-27SEP19-7000-C": "BTC-27SEP19-7000-C",
-			"BTC-28JUN19-2000-P": "BTC-28JUN19-2000-P",
-			"BTC-31MAY19-5500-C": "BTC-31MAY19-5500-C",
-			"BTC-31MAY19-6750-P": "BTC-31MAY19-6750-P",
-			"BTC-27SEP19-7000-P": "BTC-27SEP19-7000-P",
-			"BTC-10MAY19-5500-P": "BTC-10MAY19-5500-P",
-			"BTC-27DEC19-2500-P": "BTC-27DEC19-2500-P",
-			"BTC-27SEP19-3250-C": "BTC-27SEP19-3250-C",
-			"BTC-27SEP19-5000-P": "BTC-27SEP19-5000-P",
-			"BTC-3MAY19-4625-C": "BTC-3MAY19-4625-C",
-			"BTC-28JUN19-6500-P": "BTC-28JUN19-6500-P",
-			"BTC-27SEP19-10000-C": "BTC-27SEP19-10000-C",
-			"BTC-31MAY19-7250-C": "BTC-31MAY19-7250-C",
-			"BTC-27DEC19-4000-P": "BTC-27DEC19-4000-P",
-			"BTC-28JUN19-8000-P": "BTC-28JUN19-8000-P",
-			"BTC-31MAY19-3750-P": "BTC-31MAY19-3750-P",
-			"BTC-28JUN19-8000-C": "BTC-28JUN19-8000-C",
-			"BTC-27SEP19-9000-C": "BTC-27SEP19-9000-C",
-			"BTC-10MAY19-5500-C": "BTC-10MAY19-5500-C",
-			"BTC-31MAY19-4000-P": "BTC-31MAY19-4000-P",
-			"BTC-27DEC19-8000-C": "BTC-27DEC19-8000-C",
-			"BTC-27DEC19-9000-C": "BTC-27DEC19-9000-C",
-			"BTC-3MAY19-4750-C": "BTC-3MAY19-4750-C",
-			"BTC-27DEC19-14000-P": "BTC-27DEC19-14000-P",
-			"BTC-3MAY19-4500-P": "BTC-3MAY19-4500-P",
-			"BTC-10MAY19-4250-P": "BTC-10MAY19-4250-P",
-			"BTC-27DEC19-3500-P": "BTC-27DEC19-3500-P",
-			"BTC-28JUN19-9000-C": "BTC-28JUN19-9000-C",
-			"BTC-27SEP19-1500-C": "BTC-27SEP19-1500-C",
-			"BTC-28JUN19-15000-C": "BTC-28JUN19-15000-C",
-			"BTC-27DEC19-6000-P": "BTC-27DEC19-6000-P",
-			"BTC-28JUN19-4750-P": "BTC-28JUN19-4750-P",
-			"BTC-28JUN19-5500-P": "BTC-28JUN19-5500-P",
-			"BTC-27SEP19-6000-P": "BTC-27SEP19-6000-P",
-			"BTC-28JUN19-6000-P": "BTC-28JUN19-6000-P",
-			"BTC-3MAY19-6500-C": "BTC-3MAY19-6500-C",
-			"BTC-31MAY19-5750-P": "BTC-31MAY19-5750-P",
-			"BTC-28JUN19-11000-P": "BTC-28JUN19-11000-P",
-			"BTC-27SEP19-6000-C": "BTC-27SEP19-6000-C",
-			"BTC-10MAY19-6000-P": "BTC-10MAY19-6000-P",
-			"BTC-27DEC19-4500-C": "BTC-27DEC19-4500-C",
-			"BTC-3MAY19-6250-C": "BTC-3MAY19-6250-C",
-			"BTC-28JUN19-12000-P": "BTC-28JUN19-12000-P",
-			"BTC-28JUN19-7000-C": "BTC-28JUN19-7000-C",
-			"BTC-27DEC19-15000-P": "BTC-27DEC19-15000-P",
-			"BTC-27DEC19-4000-C": "BTC-27DEC19-4000-C",
-			"BTC-10MAY19-5000-P": "BTC-10MAY19-5000-P",
-			"BTC-27DEC19-5500-C": "BTC-27DEC19-5500-C",
-			"BTC-10MAY19-5750-C": "BTC-10MAY19-5750-C",
-			"BTC-28JUN19-4750-C": "BTC-28JUN19-4750-C",
-			"BTC-3MAY19-5375-C": "BTC-3MAY19-5375-C",
-			"BTC-3MAY19-6250-P": "BTC-3MAY19-6250-P",
-			"BTC-31MAY19-4500-P": "BTC-31MAY19-4500-P",
-			"BTC-27DEC19-3000-C": "BTC-27DEC19-3000-C",
-			"BTC-28JUN19-5000-C": "BTC-28JUN19-5000-C",
-			"BTC-10MAY19-5250-P": "BTC-10MAY19-5250-P",
-			"BTC-27DEC19-4500-P": "BTC-27DEC19-4500-P",
-			"BTC-28JUN19": "BTC-28JUN19",
-			"BTC-3MAY19-4250-C": "BTC-3MAY19-4250-C",
-			"BTC-27SEP19-11000-P": "BTC-27SEP19-11000-P",
-			"BTC-27DEC19-1500-P": "BTC-27DEC19-1500-P",
-			"BTC-3MAY19-4875-C": "BTC-3MAY19-4875-C",
-			"BTC-3MAY19-6500-P": "BTC-3MAY19-6500-P",
-			"BTC-27SEP19-4750-P": "BTC-27SEP19-4750-P",
-			"BTC-28JUN19-14000-P": "BTC-28JUN19-14000-P",
-			"BTC-3MAY19-5000-C": "BTC-3MAY19-5000-C",
-			"BTC-31MAY19-3500-P": "BTC-31MAY19-3500-P",
-			"BTC-10MAY19-4500-P": "BTC-10MAY19-4500-P",
-			"BTC-27SEP19-3000-C": "BTC-27SEP19-3000-C",
-			"BTC-27SEP19-4500-P": "BTC-27SEP19-4500-P",
-			"BTC-27SEP19-5500-P": "BTC-27SEP19-5500-P",
-			"BTC-27DEC19-13000-C": "BTC-27DEC19-13000-C",
-			"BTC-3MAY19-5125-C": "BTC-3MAY19-5125-C",
-			"BTC-28JUN19-2000-C": "BTC-28JUN19-2000-C",
-			"BTC-27SEP19-2500-P": "BTC-27SEP19-2500-P",
-			"BTC-27DEC19-11000-C": "BTC-27DEC19-11000-C",
-			"BTC-27DEC19-2000-P": "BTC-27DEC19-2000-P",
-			"BTC-27SEP19-8000-C": "BTC-27SEP19-8000-C",
-			"BTC-27DEC19-14000-C": "BTC-27DEC19-14000-C",
-			"BTC-10MAY19-4750-P": "BTC-10MAY19-4750-P",
-			"BTC-3MAY19-5500-P": "BTC-3MAY19-5500-P",
-			"BTC-28JUN19-2500-P": "BTC-28JUN19-2500-P",
-			"BTC-27SEP19-9000-P": "BTC-27SEP19-9000-P",
-			"BTC-27DEC19-3500-C": "BTC-27DEC19-3500-C",
-			"BTC-27DEC19-10000-C": "BTC-27DEC19-10000-C",
-			"BTC-27SEP19-4250-C": "BTC-27SEP19-4250-C",
-			"BTC-27DEC19-2000-C": "BTC-27DEC19-2000-C",
-			"BTC-27SEP19-3750-P": "BTC-27SEP19-3750-P",
-			"BTC-27DEC19-11000-P": "BTC-27DEC19-11000-P",
-			"BTC-27DEC19-7500-C": "BTC-27DEC19-7500-C",
-			"BTC-3MAY19-5625-C": "BTC-3MAY19-5625-C",
-			"BTC-28JUN19-7000-P": "BTC-28JUN19-7000-P",
-			"BTC-27SEP19-2000-P": "BTC-27SEP19-2000-P",
-			"BTC-3MAY19-5500-C": "BTC-3MAY19-5500-C",
-			"BTC-31MAY19-7000-P": "BTC-31MAY19-7000-P",
-			"BTC-28JUN19-11000-C": "BTC-28JUN19-11000-C",
-			"BTC-27DEC19-1500-C": "BTC-27DEC19-1500-C",
-			"BTC-31MAY19-4750-C": "BTC-31MAY19-4750-C",
-			"BTC-31MAY19-5250-C": "BTC-31MAY19-5250-C",
-			"BTC-28JUN19-3250-C": "BTC-28JUN19-3250-C",
-			"BTC-10MAY19-4250-C": "BTC-10MAY19-4250-C",
-			"BTC-27DEC19-9000-P": "BTC-27DEC19-9000-P",
-			"BTC-28JUN19-3750-P": "BTC-28JUN19-3750-P",
-			"BTC-31MAY19-4250-P": "BTC-31MAY19-4250-P",
-			"BTC-28JUN19-2500-C": "BTC-28JUN19-2500-C",
-			"BTC-28JUN19-13000-P": "BTC-28JUN19-13000-P",
-			"BTC-3MAY19-5125-P": "BTC-3MAY19-5125-P",
-			"BTC-27DEC19-8000-P": "BTC-27DEC19-8000-P",
-			"BTC-27SEP19-2500-C": "BTC-27SEP19-2500-C",
-			"BTC-27DEC19-10000-P": "BTC-27DEC19-10000-P",
-			"BTC-27SEP19-5000-C": "BTC-27SEP19-5000-C",
-			"BTC-28JUN19-1500-C": "BTC-28JUN19-1500-C",
-			"BTC-3MAY19-5375-P": "BTC-3MAY19-5375-P",
-			"BTC-28JUN19-6000-C": "BTC-28JUN19-6000-C",
-			"BTC-28JUN19-4000-P": "BTC-28JUN19-4000-P",
-			"BTC-27DEC19-7000-P": "BTC-27DEC19-7000-P",
-			"BTC-28JUN19-5000-P": "BTC-28JUN19-5000-P",
-			"BTC-27DEC19-3000-P": "BTC-27DEC19-3000-P",
-			"BTC-10MAY19-6250-P": "BTC-10MAY19-6250-P",
-			"BTC-28JUN19-20000-P": "BTC-28JUN19-20000-P",
-			"BTC-31MAY19-7250-P": "BTC-31MAY19-7250-P",
-			"BTC-27DEC19-2500-C": "BTC-27DEC19-2500-C",
-			"BTC-31MAY19-4500-C": "BTC-31MAY19-4500-C",
-			"BTC-28JUN19-3000-P": "BTC-28JUN19-3000-P",
-			"BTC-3MAY19-4500-C": "BTC-3MAY19-4500-C",
-			"BTC-10MAY19-5000-C": "BTC-10MAY19-5000-C",
-			"BTC-27SEP19-4500-C": "BTC-27SEP19-4500-C",
-			"BTC-31MAY19-7000-C": "BTC-31MAY19-7000-C",
-			"BTC-28JUN19-3250-P": "BTC-28JUN19-3250-P",
-			"BTCUSD": "BTC-PERPETUAL",
-			"BTC-3MAY19-4625-P": "BTC-3MAY19-4625-P",
-			"BTC-27SEP19-12000-P": "BTC-27SEP19-12000-P",
-			"BTC-31MAY19-6000-C": "BTC-31MAY19-6000-C",
-			"BTC-27SEP19-3000-P": "BTC-27SEP19-3000-P",
-			"BTC-28JUN19-4500-C": "BTC-28JUN19-4500-C",
-			"BTC-28JUN19-10000-C": "BTC-28JUN19-10000-C",
-			"BTC-27SEP19-3250-P": "BTC-27SEP19-3250-P",
-			"BTC-3MAY19-6000-C": "BTC-3MAY19-6000-C",
-			"BTC-27DEC19-6500-C": "BTC-27DEC19-6500-C",
-			"BTC-28JUN19-3000-C": "BTC-28JUN19-3000-C",
-			"BTC-27DEC19-5500-P": "BTC-27DEC19-5500-P",
-			"BTC-27SEP19-3500-C": "BTC-27SEP19-3500-C",
-			"BTC-31MAY19-6250-P": "BTC-31MAY19-6250-P",
-			"BTC-31MAY19-3750-C": "BTC-31MAY19-3750-C",
-			"BTC-31MAY19-6750-C": "BTC-31MAY19-6750-C",
-			"BTC-3MAY19-5750-P": "BTC-3MAY19-5750-P",
-			"BTC-3MAY19-5250-C": "BTC-3MAY19-5250-C",
-			"ETH-27SEP19-60-P": "ETH-27SEP19-60-P",
-			"ETH-10MAY19-180-P": "ETH-10MAY19-180-P",
-			"ETH-10MAY19-190-C": "ETH-10MAY19-190-C",
-			"ETH-28JUN19-500-C": "ETH-28JUN19-500-C",
-			"ETH-28JUN19-160-C": "ETH-28JUN19-160-C",
-			"ETH-27SEP19-220-C": "ETH-27SEP19-220-C",
-			"ETH-27SEP19-400-P": "ETH-27SEP19-400-P",
-			"ETH-27SEP19-260-C": "ETH-27SEP19-260-C",
-			"ETH-3MAY19-150-P": "ETH-3MAY19-150-P",
-			"ETH-3MAY19-210-C": "ETH-3MAY19-210-C",
-			"ETH-28JUN19-180-C": "ETH-28JUN19-180-C",
-			"ETH-28JUN19-170-C": "ETH-28JUN19-170-C",
-			"ETH-28JUN19-100-C": "ETH-28JUN19-100-C",
-			"ETH-28JUN19-200-P": "ETH-28JUN19-200-P",
-			"ETH-28JUN19-300-P": "ETH-28JUN19-300-P",
-			"ETH-27SEP19-160-P": "ETH-27SEP19-160-P",
-			"ETH-27SEP19-300-P": "ETH-27SEP19-300-P",
-			"ETH-3MAY19-140-C": "ETH-3MAY19-140-C",
-			"ETH-28JUN19-130-P": "ETH-28JUN19-130-P",
-			"ETH-27SEP19-120-P": "ETH-27SEP19-120-P",
-			"ETH-3MAY19-220-P": "ETH-3MAY19-220-P",
-			"ETH-27SEP19-480-C": "ETH-27SEP19-480-C",
-			"ETH-27SEP19-200-C": "ETH-27SEP19-200-C",
-			"ETH-28JUN19-320-C": "ETH-28JUN19-320-C",
-			"ETH-28JUN19-130-C": "ETH-28JUN19-130-C",
-			"ETH-28JUN19-140-P": "ETH-28JUN19-140-P",
-			"ETH-10MAY19-200-C": "ETH-10MAY19-200-C",
-			"ETH-27SEP19-200-P": "ETH-27SEP19-200-P",
-			"ETH-28JUN19-120-C": "ETH-28JUN19-120-C",
-			"ETH-3MAY19-200-C": "ETH-3MAY19-200-C",
-			"ETH-28JUN19-80-C": "ETH-28JUN19-80-C",
-			"ETH-27SEP19-240-P": "ETH-27SEP19-240-P",
-			"ETH-27SEP19-320-C": "ETH-27SEP19-320-C",
-			"ETH-27SEP19-320-P": "ETH-27SEP19-320-P",
-			"ETH-28JUN19-360-C": "ETH-28JUN19-360-C",
-			"ETH-27SEP19-380-P": "ETH-27SEP19-380-P",
-			"ETH-28JUN19-200-C": "ETH-28JUN19-200-C",
-			"ETH-27SEP19-360-P": "ETH-27SEP19-360-P",
-			"ETH-28JUN19-260-C": "ETH-28JUN19-260-C",
-			"ETH-28JUN19": "ETH-28JUN19",
-			"ETH-28JUN19-360-P": "ETH-28JUN19-360-P",
-			"ETH-3MAY19-160-C": "ETH-3MAY19-160-C",
-			"ETH-3MAY19-180-C": "ETH-3MAY19-180-C",
-			"ETH-28JUN19-110-P": "ETH-28JUN19-110-P",
-			"ETH-10MAY19-140-C": "ETH-10MAY19-140-C",
-			"ETH-10MAY19-180-C": "ETH-10MAY19-180-C",
-			"ETH-28JUN19-140-C": "ETH-28JUN19-140-C",
-			"ETH-10MAY19-150-C": "ETH-10MAY19-150-C",
-			"ETH-3MAY19-210-P": "ETH-3MAY19-210-P",
-			"ETH-10MAY19-160-P": "ETH-10MAY19-160-P",
-			"ETH-3MAY19-200-P": "ETH-3MAY19-200-P",
-			"ETH-27SEP19-120-C": "ETH-27SEP19-120-C",
-			"ETH-28JUN19-110-C": "ETH-28JUN19-110-C",
-			"ETH-3MAY19-220-C": "ETH-3MAY19-220-C",
-			"ETH-27SEP19-80-C": "ETH-27SEP19-80-C",
-			"ETH-28JUN19-150-C": "ETH-28JUN19-150-C",
-			"ETH-3MAY19-150-C": "ETH-3MAY19-150-C",
-			"ETH-27SEP19-220-P": "ETH-27SEP19-220-P",
-			"ETH-10MAY19-190-P": "ETH-10MAY19-190-P",
-			"ETH-3MAY19-120-C": "ETH-3MAY19-120-C",
-			"ETH-10MAY19-110-C": "ETH-10MAY19-110-C",
-			"ETH-27SEP19-180-C": "ETH-27SEP19-180-C",
-			"ETH-3MAY19-120-P": "ETH-3MAY19-120-P",
-			"ETH-27SEP19-280-C": "ETH-27SEP19-280-C",
-			"ETH-3MAY19-190-P": "ETH-3MAY19-190-P",
-			"ETH-10MAY19-170-C": "ETH-10MAY19-170-C",
-			"ETH-28JUN19-90-C": "ETH-28JUN19-90-C",
-			"ETH-27SEP19-80-P": "ETH-27SEP19-80-P",
-			"ETH-3MAY19-130-C": "ETH-3MAY19-130-C",
-			"ETH-28JUN19-210-P": "ETH-28JUN19-210-P",
-			"ETH-28JUN19-170-P": "ETH-28JUN19-170-P",
-			"ETH-10MAY19-170-P": "ETH-10MAY19-170-P",
-			"ETH-3MAY19-180-P": "ETH-3MAY19-180-P",
-			"ETH-27SEP19-100-P": "ETH-27SEP19-100-P",
-			"ETH-27SEP19-440-C": "ETH-27SEP19-440-C",
-			"ETH-10MAY19-120-P": "ETH-10MAY19-120-P",
-			"ETH-3MAY19-170-C": "ETH-3MAY19-170-C",
-			"ETH-27SEP19-100-C": "ETH-27SEP19-100-C",
-			"ETH-28JUN19-210-C": "ETH-28JUN19-210-C",
-			"ETH-10MAY19-140-P": "ETH-10MAY19-140-P",
-			"ETH-3MAY19-190-C": "ETH-3MAY19-190-C",
-			"ETH-27SEP19-400-C": "ETH-27SEP19-400-C",
-			"ETH-27SEP19-440-P": "ETH-27SEP19-440-P",
-			"ETH-28JUN19-400-P": "ETH-28JUN19-400-P",
-			"ETH-27SEP19-160-C": "ETH-27SEP19-160-C",
-			"ETH-27SEP19-340-C": "ETH-27SEP19-340-C",
-			"ETH-10MAY19-200-P": "ETH-10MAY19-200-P",
-			"ETH-28JUN19-180-P": "ETH-28JUN19-180-P",
-			"ETH-10MAY19-130-C": "ETH-10MAY19-130-C",
-			"ETH-28JUN19-240-C": "ETH-28JUN19-240-C",
-			"ETH-28JUN19-160-P": "ETH-28JUN19-160-P",
-			"ETH-3MAY19-160-P": "ETH-3MAY19-160-P",
-			"ETH-3MAY19-170-P": "ETH-3MAY19-170-P",
-			"ETH-28JUN19-190-C": "ETH-28JUN19-190-C",
-			"ETH-27SEP19-60-C": "ETH-27SEP19-60-C",
-			"ETH-10MAY19-110-P": "ETH-10MAY19-110-P",
-			"ETH-28JUN19-90-P": "ETH-28JUN19-90-P",
-			"ETH-28JUN19-320-P": "ETH-28JUN19-320-P",
-			"ETH-28JUN19-150-P": "ETH-28JUN19-150-P",
-			"ETH-28JUN19-190-P": "ETH-28JUN19-190-P",
-			"ETH-27SEP19-140-C": "ETH-27SEP19-140-C",
-			"ETH-27SEP19-180-P": "ETH-27SEP19-180-P",
-			"ETH-27SEP19-360-C": "ETH-27SEP19-360-C",
-			"ETH-28JUN19-100-P": "ETH-28JUN19-100-P",
-			"ETH-27SEP19-380-C": "ETH-27SEP19-380-C",
-			"ETH-10MAY19-120-C": "ETH-10MAY19-120-C",
-			"ETH-27SEP19-260-P": "ETH-27SEP19-260-P",
-			"ETH-28JUN19-240-P": "ETH-28JUN19-240-P",
-			"ETH-28JUN19-300-C": "ETH-28JUN19-300-C",
-			"ETH-27SEP19-280-P": "ETH-27SEP19-280-P",
-			"ETH-27SEP19-140-P": "ETH-27SEP19-140-P",
-			"ETH-27SEP19": "ETH-27SEP19",
-			"ETH-3MAY19-130-P": "ETH-3MAY19-130-P",
-			"ETH-27SEP19-240-C": "ETH-27SEP19-240-C",
-			"ETH-28JUN19-500-P": "ETH-28JUN19-500-P",
-			"ETH-10MAY19-130-P": "ETH-10MAY19-130-P",
-			"ETH-28JUN19-400-C": "ETH-28JUN19-400-C",
-			"ETH-3MAY19-140-P": "ETH-3MAY19-140-P",
-			"ETH-28JUN19-280-C": "ETH-28JUN19-280-C",
-			"ETH-28JUN19-80-P": "ETH-28JUN19-80-P",
-			"ETH-27SEP19-480-P": "ETH-27SEP19-480-P",
-			"ETH-28JUN19-220-P": "ETH-28JUN19-220-P",
-			"ETH-27SEP19-300-C": "ETH-27SEP19-300-C",
-			"ETH-28JUN19-260-P": "ETH-28JUN19-260-P",
-			"ETH-28JUN19-280-P": "ETH-28JUN19-280-P",
-			"ETH-28JUN19-120-P": "ETH-28JUN19-120-P",
-			"ETH-10MAY19-160-C": "ETH-10MAY19-160-C",
-			"ETH-28JUN19-220-C": "ETH-28JUN19-220-C",
-			"ETH-27SEP19-340-P": "ETH-27SEP19-340-P",
-			"ETHUSD": "ETH-PERPETUAL",
-			"ETH-10MAY19-150-P": "ETH-10MAY19-150-P"
-		}
+    this.options = Object.assign(
+      {
+        url: () => {
+          return `wss://www.deribit.com/ws/api/v2`
+        },
+      },
+      this.options
+    )
+  }
 
-		this.options = Object.assign({
-			url: () => {
-				return `wss://www.deribit.com/ws/api/v2`
-			},
-		}, this.options);
-	}
+  getMatch(pair) {
+    if (!this.products) {
+      return false
+    }
 
-	connect(pair) {
-    if (!super.connect(pair))
-			return;
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
 
-		this.api = new WebSocket(this.getUrl());
+    // allow match to remote pair syntax also
+    // so both BTCUSD and BTC-PERPETUAL as localPair will work
+    for (let localPair in this.products) {
+      if (this.products[localPair] === pair) {
+        return this.products[localPair]
+      }
+    }
 
-		this.api.onmessage = event => this.emitData(this.format(JSON.parse(event.data)));
+    return false
+  }
 
-		this.api.onopen = event => {
-			this.skip = true;
+  formatProducts(data) {
+    return data.result.reduce((output, product) => {
+      output[
+        product.settlement === 'perpetual'
+          ? product.baseCurrency + product.currency
+          : product.instrumentName
+      ] = product.instrumentName
+      return output
+    }, {})
+  }
 
-			this.api.send(JSON.stringify({
-				method: 'public/subscribe',
-				params: {
-					channels: ['trades.' + this.pair + '.raw'],
-				}
-			}));
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
 
-			this.keepalive = setInterval(() => {
-				this.api.send(JSON.stringify({
-					method: 'public/ping',
-				}));
-			}, 60000);
+    api.send(
+      JSON.stringify({
+        method: 'public/subscribe',
+        params: {
+          channels: ['trades.' + this.match[pair] + '.raw'],
+        },
+      })
+    )
+  }
 
-			this.emitOpen(event);
-		};
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
 
-		this.api.onclose = event => {
-			this.emitClose(event);
+    api.send(
+      JSON.stringify({
+        method: 'public/unsubscribe',
+        params: {
+          channels: ['trades.' + this.match[pair] + '.raw'],
+        },
+      })
+    )
+  }
 
-			clearInterval(this.keepalive);
-		};
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
 
-		this.api.onerror = this.emitError.bind(this, {message: 'Websocket error'});
-	}
+    if (
+      !json ||
+      !json.params ||
+      !json.params.data ||
+      !json.params.data.length
+    ) {
+      return
+    }
 
-	disconnect() {
-		if (!super.disconnect())
-			return;
+    return this.emitTrades(
+      api.id,
+      json.params.data.map((a) => {
+        const trade = {
+          exchange: this.id,
+          pair: a.instrument_name,
+          timestamp: +a.timestamp,
+          price: +a.price,
+          size: a.amount / a.price,
+          side: a.direction,
+        }
 
-		if (this.api && this.api.readyState < 2) {
-			this.api.close();
-		}
-	}
+        if (a.liquidation) {
+          trade.liquidation = true
+        }
 
-	format(json) {
-		if (
-			!json.params
-			|| !json.params.data
-			|| !json.params.data.length
-		) {
-			return;
-		}
-
-		return json.params.data.map(a => {
-			const trade = [
-        this.id,
-				+a.timestamp,
-				+a.price,
-				a.amount / a.price,
-				a.direction === 'buy' ? 1 : 0
-			]
-			
-			if (a.liquidation) {
-				trade[5] = 1;
-			}
-
-			return trade;
-		});
-	}
-
+        return trade
+      })
+    )
+  }
 }
 
-module.exports = Deribit;
+module.exports = Deribit

@@ -6,7 +6,7 @@ class Bitfinex extends Exchange {
 
     this.id = 'bitfinex'
 
-    this.channels = {};
+    this.channels = {}
 
     this.endpoints = {
       PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
@@ -14,24 +14,24 @@ class Bitfinex extends Exchange {
 
     this.options = Object.assign(
       {
-        url: 'wss://api.bitfinex.com/ws/2',
+        url: 'wss://api-pub.bitfinex.com',
       },
       this.options
     )
   }
 
   formatProducts(data) {
-    return data.map(a => a.toUpperCase())
+    return data.map((a) => a.toUpperCase())
   }
 
   /**
    * Sub
-   * @param {WebSocket} api 
-   * @param {string} pair 
+   * @param {WebSocket} api
+   * @param {string} pair
    */
   subscribe(api, pair) {
     if (!super.subscribe.apply(this, arguments)) {
-      return;
+      return
     }
 
     api.send(
@@ -45,39 +45,39 @@ class Bitfinex extends Exchange {
 
   /**
    * Unsub
-   * @param {WebSocket} api 
-   * @param {string} pair 
+   * @param {WebSocket} api
+   * @param {string} pair
    */
   unsubscribe(api, pair) {
     if (!super.unsubscribe.apply(this, arguments)) {
-      return;
+      return
     }
 
-    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === this.match[pair]);
-    if (!channelsToUnsubscribe.length) {
-      debugger;
-    }
+    const channelsToUnsubscribe = Object.keys(this.channels).filter(
+      (id) => this.channels[id].pair === this.match[pair]
+    )
+
     for (let id of channelsToUnsubscribe) {
       api.send(
         JSON.stringify({
           event: 'unsubscribe',
-          chanId: id
+          chanId: id,
         })
       )
     }
   }
 
-  onMessage(event) {
+  onMessage(event, api) {
     const json = JSON.parse(event.data)
 
     if (json.event) {
       if (json.chanId) {
         if (this.pairs.indexOf(json.pair) === -1) {
-          debugger;
+          debugger
         }
         this.channels[json.chanId] = {
           name: json.channel,
-          pair: json.pair
+          pair: json.pair,
         }
       }
       return
@@ -90,46 +90,43 @@ class Bitfinex extends Exchange {
       return
     }
 
-    const channel = this.channels[json[0]];
+    const channel = this.channels[json[0]]
 
     if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
-      channel.hasReceivedInitialData = true;
+      channel.hasReceivedInitialData = true
       return
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
       this.price = +json[2][3]
 
-      this.reportedVolume += json[2][3] * Math.abs(json[2][2]);
-
-      this.emitTrades([
+      return this.emitTrades(api.id, [
         {
           exchange: this.id,
-          pair: this.mapPair(channel.pair),
+          pair: channel.pair,
           timestamp: +new Date(json[2][1]),
           price: +json[2][3],
           size: Math.abs(json[2][2]),
           side: json[2][2] < 0 ? 'sell' : 'buy',
         },
       ])
-
-      return true;
     } else if (channel.name === 'status' && json[1]) {
-      this.emitTrades(
+      return this.emitTrades(
+        api.id,
         json[1]
           .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
-          .map((a) => { 
+          .map((a) => {
             return {
-            exchange: this.id,
-            pair: this.mapPair(a[4].substring(1)),
-            timestamp: parseInt(a[2]),
-            price: this.price,
-            size: Math.abs(a[5]),
-            side: a[5] > 1 ? 'buy' : 'sell',
-            liquidation: true,
-          }})
+              exchange: this.id,
+              pair: a[4].substring(1),
+              timestamp: parseInt(a[2]),
+              price: this.price,
+              size: Math.abs(a[5]),
+              side: a[5] > 1 ? 'buy' : 'sell',
+              liquidation: true,
+            }
+          })
       )
-      return true;
     }
   }
 }

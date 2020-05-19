@@ -6,77 +6,118 @@ class Bitmex extends Exchange {
     super(options)
 
     this.id = 'bitmex'
+    this.pairCurrencies = {}
 
-    this.mapping = {
-      ETHUSD: 'ETHUSD',
-      BTCUSD: 'XBTUSD',
-      ADABTC: 'ADAM18',
-      BCHBTC: 'BCHM18',
-      ETHBTC: 'ETHM18',
-      LTCBTC: 'LTCM18',
-      XRPBTC: 'XRPM18',
+    this.endpoints = {
+      PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active',
     }
 
     this.options = Object.assign(
       {
         url: () => {
-          return `wss://www.bitmex.com/realtime?subscribe=trade:${this.pair},liquidation:${this.pair}`
+          return `wss://www.bitmex.com/realtime`
         },
       },
       this.options
     )
   }
 
-  connect(pair) {
-    if (!super.connect(pair)) return
-
-    this.api = new WebSocket(this.getUrl())
-    this.api.on('message', (event) => this.emitData(this.format(event)))
-
-    this.api.on('open', this.emitOpen.bind(this))
-
-    this.api.on('close', this.emitClose.bind(this))
-
-    this.api.on('error', this.emitError.bind(this))
-  }
-
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
+  getMatch(pair) {
+    console.log(pair, this.products)
+    if (!this.products) {
+      return false
     }
-  }
 
-  format(event) {
-    const json = JSON.parse(event)
-
-    if (json && json.data && json.data.length) {
-      if (json.table === 'liquidation' && json.action === 'insert') {
-        return json.data.map((trade) => {
-          return [
-            this.id,
-            +new Date(),
-            trade.price,
-            trade.leavesQty / trade.price,
-            trade.side === 'Buy' ? 1 : 0,
-            1,
-          ]
-        })
-      } else if (json.table === 'trade' && json.action === 'insert') {
-        return json.data.map((trade) => {
-          return [
-            this.id,
-            +new Date(trade.timestamp),
-            trade.price,
-            trade.size / trade.price,
-            trade.side === 'Buy' ? 1 : 0,
-          ]
-        })
-      }
+    if (this.products.indexOf(pair) !== -1) {
+      return pair
     }
 
     return false
+  }
+
+  formatProducts(data) {
+    const pairs = []
+
+    for (let product of data) {
+      pairs.push(product.symbol)
+
+      this.pairCurrencies[product.symbol] = product.quoteCurrency
+    }
+
+    return pairs
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]],
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]],
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (json && json.data && json.data.length) {
+      if (json.table === 'liquidation' && json.action === 'insert') {
+        return this.emitTrades(
+          api.id,
+          json.data.map((trade) => ({
+            exchange: this.id,
+            pair: trade.symbol,
+            timestamp: +new Date(),
+            price: trade.price,
+            size:
+              trade.leavesQty /
+              (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            side: trade.side === 'Buy' ? 'buy' : 'sell',
+            liquidation: true,
+          }))
+        )
+      } else if (json.table === 'trade' && json.action === 'insert') {
+        return this.emitTrades(
+          api.id,
+          json.data.map((trade) => ({
+            exchange: this.id,
+            pair: trade.symbol,
+            timestamp: +new Date(trade.timestamp),
+            price: trade.price,
+            size:
+              trade.size /
+              (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            side: trade.side === 'Buy' ? 'buy' : 'sell',
+          }))
+        )
+      }
+    }
   }
 }
 

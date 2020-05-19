@@ -21,9 +21,11 @@ if (!config.exchanges || !config.exchanges.length) {
 const exchanges = []
 
 for (let name of config.exchanges) {
-  const exchange = require('./src/exchanges/' + name)
+  const exchange = new (require('./src/exchanges/' + name))(config)
 
-  exchanges[config.exchanges.indexOf(name)] = new exchange(config)
+  config.exchanges[config.exchanges.indexOf(name)] = exchange.id;
+
+  exchanges.push(exchange)
 }
 
 /* Start server
@@ -36,15 +38,15 @@ const server = new Server(config, exchanges)
 
 if (process.env.pmx) {
   const currently_online = probe.metric({
-    name: 'Online'
+    name: 'Online',
   })
 
   const unique_visitors = probe.metric({
-    name: 'Unique'
+    name: 'Unique',
   })
 
   const stored_quotas = probe.metric({
-    name: 'Quotas'
+    name: 'Quotas',
   })
 
   server.on('connections', (n) => {
@@ -64,7 +66,7 @@ if (process.env.pmx) {
       server.notice = null
 
       server.broadcast({
-        type: 'message'
+        type: 'message',
       })
 
       reply(`Notice deleted`)
@@ -72,7 +74,7 @@ if (process.env.pmx) {
       const alert = {
         type: 'message',
         message: message,
-        timestamp: +new Date()
+        timestamp: +new Date(),
       }
 
       server.broadcast(alert)

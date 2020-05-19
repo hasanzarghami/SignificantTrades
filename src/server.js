@@ -6,8 +6,9 @@ const {
   getHms,
   formatAmount,
   getPair,
+  mapPair,
   groupByPairs,
-  getTime,
+  ago
 } = require('./helper')
 const express = require('express')
 const rateLimit = require('express-rate-limit')
@@ -17,16 +18,41 @@ class Server extends EventEmitter {
     super()
 
     this.options = options
-
-    this.broadcastedVolume = {}
-    this.chunk = []
+    this.exchanges = exchanges || []
     this.storages = null
+
+    /**
+     * Raw trades ready to be persisted into storage next save
+     * @type Trade[]
+     */
+    this.chunk = []
+
+    /**
+     * Keep track of all (previously used or active) matches by remote symbol
+     * @type {{[remotePair: string]: {mapped: string, local: string, remote: string}}}
+     */
+    this.matchs = {}
+
+    /**
+     * delayed trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
+     * @type Trade[]
+     */
+    this.delayed = []
+
+    /**
+     * active trades aggregations
+     * @type {{[aggrIdentifier: string]: Trade}}
+     */
+    this.aggregating = {}
+
+    /**
+     * already aggregated trades ready to be broadcasted (see _broadcastAggregatedTradesInterval)
+     * @type Trade[]
+     */
+    this.aggregated = []
 
     this.ADMIN_IPS = []
     this.BANNED_IPS = []
-
-    this.exchanges = exchanges || []
-    this.queue = []
 
     this.initStorages().then(() => {
       if (this.options.collect) {
@@ -44,7 +70,7 @@ class Server extends EventEmitter {
         )
         this.handleExchangesEvents()
         this.connectExchanges()
-
+/*
         setTimeout(() => {
           this.connectPairs(['XMRUSD'])
         }, 10000)
@@ -53,10 +79,26 @@ class Server extends EventEmitter {
           this.disconnectPairs(['BTCUSDT'])
         }, 20000)
 
+        setTimeout(() => {
+          this.connectPairs(['XBTUSD'])
+        }, 30000)
+
+        setTimeout(() => {
+          this.disconnectPairs(['XBTUSD'])
+        }, 40000)
+
+        setTimeout(() => {
+          this.connectPairs(['XBTUSD'])
+        }, 50000)
+
+        setTimeout(() => {
+          this.disconnectPairs(['PI_XBTUSD'])
+        }, 60000)
+*/
         // profile exchanges connections (keep alive)
-        this.profilerInterval = setInterval(
+        this._activityMonitoringInterval = setInterval(
           this.monitorExchangesActivity.bind(this),
-          1000 * 60
+          1000 * 15
         )
 
         if (this.storages) {
@@ -76,10 +118,14 @@ class Server extends EventEmitter {
 
       if (this.options.websocket) {
         this.createWSServer()
+
+        if (this.options.aggr) {
+          this._broadcastAggregatedTradesInterval = setInterval(this.broadcastAggregatedTrades.bind(this), 50)
+        }
       }
 
       // update admin & banned ip
-      this.updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
+      this._updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
 
       if (this.options.api) {
         setTimeout(() => {
@@ -123,66 +169,6 @@ class Server extends EventEmitter {
     }
 
     return Promise.all(promises)
-  }
-
-  dumpReportedVolume() {
-    console.log('\nVolume check')
-
-    for (let exchange of this.exchanges) {
-      const reported = exchange.reportedVolume || 0
-      const broadcasted = this.broadcastedVolume[exchange.id] || 0
-
-      const aggrTrades = Object.keys(exchange.aggrTrades)
-      let aggregating = 0
-
-      if (aggrTrades.length) {
-        aggregating = aggrTrades.reduce((sum, pair) => {
-          sum +=
-            (exchange.aggrTrades[pair].price / exchange.aggrTrades[pair].size) *
-            exchange.aggrTrades[pair].size
-          return sum
-        }, 0)
-      }
-
-      if (aggrTrades.length) {
-        aggregating = aggrTrades.reduce((sum, pair) => {
-          sum +=
-            (exchange.aggrTrades[pair].price / exchange.aggrTrades[pair].size) *
-            exchange.aggrTrades[pair].size
-          return sum
-        }, 0)
-      }
-
-      const tradesInQueue = this.queue.filter(
-        (trade) => trade.exchange === exchange.id
-      )
-
-      let inqueue = 0
-
-      if (tradesInQueue.length) {
-        inqueue = tradesInQueue.reduce(
-          (sum, trade) => sum + trade.price * trade.size,
-          0
-        )
-      }
-
-      console.log(
-        `[${exchange.id}] reported: ${formatAmount(
-          reported,
-          5
-        )}, aggregating: ${formatAmount(
-          aggregating,
-          5
-        )}, inqueue: ${formatAmount(inqueue, 5)}, broadcasted: ${formatAmount(
-          broadcasted,
-          5
-        )}, total: ${formatAmount(broadcasted + inqueue + aggregating, 5)}`
-      )
-    }
-
-    console.log('\n')
-
-    return Promise.resolve()
   }
 
   backupTrades(exitBackup) {
@@ -233,26 +219,10 @@ class Server extends EventEmitter {
 
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
-      exchange.on('data', (event) => {
-        Array.prototype.push.apply(this.chunk, event.data)
-
-        if (!this.options.aggr) {
-          if (!this.options.delay) {
-            this.broadcastTrades(event.data)
-          } else {
-            Array.prototype.push.apply(this.queue, event.data)
-          }
-        }
-      })
-
       if (this.options.aggr) {
-        exchange.on('data.aggr', (event) => {
-          if (!this.options.delay) {
-            this.broadcastTrades(event.data)
-          } else {
-            Array.prototype.push.apply(this.queue, event.data)
-          }
-        })
+        exchange.on('trades', this.processAggregate.bind(this, exchange.id))
+      } else {
+        exchange.on('trades', this.processRaw.bind(this, exchange.id))
       }
 
       exchange.on('open', (event) => {
@@ -260,6 +230,18 @@ class Server extends EventEmitter {
           type: 'exchange_connected',
           id: exchange.id,
         })
+      })
+
+      exchange.on('match', (localPair, remotePair, source) => {
+        if (this.matchs[remotePair]) {
+          return
+        }
+        
+        this.matchs[source + remotePair] = {
+          remote: remotePair,
+          local: localPair,
+          mapped: mapPair(localPair)
+        }
       })
 
       exchange.on('err', (event) => {
@@ -298,7 +280,7 @@ class Server extends EventEmitter {
 
     this.wss.on('connection', (ws, req) => {
       const ip = getIp(req)
-      const pair = getPair(req, this.options.pairs[0])
+      const pair = getPair(req, mapPair(this.options.pairs[0]))
 
       ws.pair = pair
 
@@ -319,7 +301,7 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws${ws.admin ? '/admin' : ''}] joined ${req.url} from ${
+        `[${ip}/ws${ws.admin ? '/admin' : ''}${ws.pair ? '/' + ws.pair : ''}] joined ${req.url} from ${
           req.headers['origin']
         }`
       )
@@ -388,6 +370,8 @@ class Server extends EventEmitter {
         })
       },
     })
+    
+    app.set('trust proxy', 1);
 
     // otherwise ip are all the same
     app.set('trust proxy', 1)
@@ -595,32 +579,32 @@ class Server extends EventEmitter {
 
       for (let exchange of this.exchanges) {
         for (let api of exchange.apis) {
-          for (let pair of api._pairs) {
-            const localPair = exchange.mapPair(pair)
+          for (let localPair of api._pairs) {
+            const remotePair = exchange.match[localPair]
 
             if (!structPairs[localPair]) {
               structPairs[localPair] = {
-                remotePairs: [],
-                apis: [],
+                remote_pair: [],
+                api: [],
               }
             }
 
-            if (structPairs[localPair].remotePairs.indexOf(pair) === -1) {
-              structPairs[localPair].remotePairs.push(pair)
+            if (structPairs[localPair].remote_pair.indexOf(remotePair) === -1) {
+              structPairs[localPair].remote_pair.push(remotePair)
             }
 
-            if (structPairs[localPair].apis.indexOf(api.url) === -1) {
-              structPairs[localPair].apis.push(api.url)
+            if (structPairs[localPair].api.indexOf(api.url) === -1) {
+              structPairs[localPair].api.push(api.url)
             }
           }
         }
       }
 
       for (let localPair in structPairs) {
-        structPairs[localPair].apis = structPairs[localPair].apis.join(', ')
-        structPairs[localPair].remotePairs = structPairs[
+        structPairs[localPair].api = structPairs[localPair].api.join(', ')
+        structPairs[localPair].remote_pair = structPairs[
           localPair
-        ].remotePairs.join(', ')
+        ].remote_pair.join(', ')
       }
 
       console.table(structPairs)
@@ -654,15 +638,15 @@ class Server extends EventEmitter {
       return this.connectPairs(this.options.pairs)
     })
 
-    if (this.options.delay) {
-      this.delayInterval = setInterval(() => {
-        if (!this.queue.length) {
+    if (this.options.delay && !this.options.aggr) {
+      this._broadcastDelayedTradesInterval = setInterval(() => {
+        if (!this.delayed.length) {
           return
         }
 
-        this.broadcastTrades(this.queue)
+        this.broadcastTrades(this.delayed)
 
-        this.queue = []
+        this.delayed = []
       }, this.options.delay || 1000)
     }
   }
@@ -752,14 +736,6 @@ class Server extends EventEmitter {
       return
     }
 
-    for (let trade of trades) {
-      if (!this.broadcastedVolume[trade.exchange]) {
-        this.broadcastedVolume[trade.exchange] = 0
-      }
-
-      this.broadcastedVolume[trade.exchange] += trade.price * trade.size
-    }
-
     const groups = groupByPairs(trades, true)
 
     this.wss.clients.forEach((client) => {
@@ -770,9 +746,10 @@ class Server extends EventEmitter {
   }
 
   monitorExchangesActivity() {
-    const now = getTime()
+    const now = +new Date()
 
-    this.dumpReportedVolume()
+    const activity = []
+    let showActivityReport = false;
 
     this.exchanges.forEach((exchange) => {
       if (!exchange.apis.length) {
@@ -780,6 +757,16 @@ class Server extends EventEmitter {
       }
 
       for (let i = 0; i < exchange.apis.length; i++) {
+        activity[exchange.apis[i].url] = {
+          exchange: exchange.id,
+          pairs: exchange.apis[i]._pairs.join(','),
+          activity: exchange.apis[i].timestamp ? ago(exchange.apis[i].timestamp) + ' ago' : 'N/A'
+        }
+
+        if (exchange.apis[i].timestamp && now - exchange.apis[i].timestamp > 1000 * 10) {
+          showActivityReport = true
+        }
+
         if (!exchange.apis[i].timestamp) {
           console.log(
             `[warning] no data sent from ${exchange.id} ${exchange.apis[
@@ -799,6 +786,10 @@ class Server extends EventEmitter {
         }
       }
     })
+
+    if (showActivityReport) {
+      console.table(activity)
+    }
   }
 
   isAdmin(ip) {
@@ -896,6 +887,83 @@ class Server extends EventEmitter {
         return data.volumeFrom / BTC.volumeTo
       }
     })
+  }
+
+  processRaw(exchange, { source, data }) {
+    for (let i = 0; i < data.length; i++) {
+      data[i].pair = this.matchs[source + data[i].pair].mapped
+
+      // push for storage...
+      if (this.storages) {
+        this.chunk.push(data[i])
+      }
+    }
+      
+    if (!this.options.delay) {
+      this.broadcastTrades(data)
+    } else {
+      Array.prototype.push.apply(this.delayed, data)
+    }
+  }
+
+  processAggregate(exchange, { source, data }) {
+    const now = +new Date()
+    const length = data.length
+
+    for (let i = 0; i < length; i++) {
+      const trade = data[i]
+      const identifier = source + data[i].pair
+
+      data[i].pair = this.matchs[source + data[i].pair].mapped
+
+      // push for storage...
+      if (this.storages) {
+        this.chunk.push(data[i])
+      }
+
+      if (trade.liquidation) {
+        this.aggregated.push(trade)
+        continue
+      }
+
+      if (this.aggregating[identifier]) {
+        const queuedTrade = this.aggregating[identifier]
+
+        if (queuedTrade.timestamp === trade.timestamp && queuedTrade.side === trade.side) {
+          queuedTrade.size += trade.size
+          queuedTrade.price += trade.price * trade.size
+          continue
+        } else {
+          queuedTrade.price /= queuedTrade.size
+          this.aggregated.push(queuedTrade)
+        }
+      }
+
+      this.aggregating[identifier] = Object.assign({}, trade)
+      this.aggregating[identifier].timeout = now + 50
+      this.aggregating[identifier].price *= this.aggregating[identifier].size
+    }
+  }
+
+  broadcastAggregatedTrades() {
+    const now = +new Date()
+    const onGoingAggregation = Object.keys(this.aggregating)
+
+    for (let i = 0; i < onGoingAggregation.length; i++) {
+      const trade = this.aggregating[onGoingAggregation[i]]
+      if (now > trade.timeout) {
+        trade.price /= trade.size
+        this.aggregated.push(trade)
+
+        delete this.aggregating[onGoingAggregation[i]]
+      }
+    }
+
+    if (this.aggregated.length) {
+      this.broadcastTrades(this.aggregated)
+
+      this.aggregated.splice(0, this.aggregated.length)
+    }
   }
 }
 

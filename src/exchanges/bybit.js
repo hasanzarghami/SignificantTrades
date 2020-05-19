@@ -1,21 +1,20 @@
-const Exchange = require('../exchange');
-const WebSocket = require('ws');
+const Exchange = require('../exchange')
+const WebSocket = require('ws')
 
 class Bybit extends Exchange {
-
-	constructor(options) {
-		super(options);
+  constructor(options) {
+    super(options)
 
     this.id = 'bybit'
 
-    this.pairs = ['BTCUSD', 'ETHUSD', 'EOSUSD', 'XRPUSD']
+    this.products = ['BTCUSD', 'ETHUSD', 'EOSUSD', 'XRPUSD']
 
-    this.mapping = pair => {
+    this.mapping = (pair) => {
       if (this.pairs.indexOf(pair) !== -1) {
-        return pair;
+        return pair
       }
 
-      return false;
+      return false
     }
 
     this.options = Object.assign(
@@ -28,58 +27,59 @@ class Bybit extends Exchange {
     )
   }
 
-  connect(pair) {
-    if (!super.connect(pair)) return
-
-    this.api = new WebSocket(this.getUrl())
-
-    this.api.onmessage = (event) =>
-      this.emitData(this.format(JSON.parse(event.data)))
-
-    this.api.onopen = (event) => {
-      this.api.send(
-        JSON.stringify({
-          op: 'subscribe',
-          args: ['trade.' + this.pair],
-        })
-      )
-
-      this.emitOpen(event)
+  getMatch(pair) {
+    if (this.products.indexOf(pair) !== -1) {
+      return pair
     }
 
-    this.api.onclose = (event) => {
-      this.emitClose(event)
-
-      clearInterval(this.keepalive)
-    }
-
-    this.api.onerror = this.emitError.bind(this, { message: 'Websocket error' })
+    return false
   }
 
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  format(json) {
-    if (
-      !json.data ||
-      !json.data.length
-    ) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
       return
     }
 
-    return json.data.map((trade) => [
-      this.id,
-      +new Date(trade.timestamp),
-      +trade.price,
-      trade.size / trade.price,
-      trade.side === 'Buy' ? 1 : 0
-    ])
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['trade'],
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json.data || !json.topic || !json.data.length) {
+      return
+    }
+
+    const pair = json.topic.split('.').pop()
+
+    if (this.pairs.indexOf(pair) === -1) {
+      return
+    }
+
+    return this.emitTrades(
+      api.id,
+      json.data.map((trade) => {
+        return {
+          exchange: this.id,
+          pair: pair,
+          timestamp: +new Date(trade.timestamp),
+          price: +trade.price,
+          size: trade.size / trade.price,
+          side: trade.side === 'Buy' ? 'buy' : 'sell',
+        }
+      })
+    )
   }
 }
 
-module.exports = Bybit;
+module.exports = Bybit

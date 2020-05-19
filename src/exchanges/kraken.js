@@ -6,160 +6,183 @@ class Kraken extends Exchange {
     super(options)
 
     this.id = 'kraken'
+    this.keepAliveIntervals = {}
 
-    this.pairs = [
-      'ADACAD',
-      'ADAETH',
-      'ADAEUR',
-      'ADAUSD',
-      'ADAXBT',
-      'ATOMCAD',
-      'ATOMETH',
-      'ATOMEUR',
-      'ATOMUSD',
-      'ATOMXBT',
-      'BCHEUR',
-      'BCHUSD',
-      'BCHXBT',
-      'DASHEUR',
-      'DASHUSD',
-      'DASHXBT',
-      'EOSETH',
-      'EOSEUR',
-      'EOSUSD',
-      'EOSXBT',
-      'GNOETH',
-      'GNOEUR',
-      'GNOUSD',
-      'GNOXBT',
-      'QTUMCAD',
-      'QTUMETH',
-      'QTUMEUR',
-      'QTUMUSD',
-      'QTUMXBT',
-      'USDTUSD',
-      'ETCETH',
-      'ETCXBT',
-      'ETCEUR',
-      'ETCUSD',
-      'ETHXBT',
-      'ETHXBT.d',
-      'ETHCAD',
-      'ETHCAD.d',
-      'ETHEUR',
-      'ETHEUR.d',
-      'ETHGBP',
-      'ETHGBP.d',
-      'ETHJPY',
-      'ETHJPY.d',
-      'ETHUSD',
-      'ETHUSD.d',
-      'LTCXBT',
-      'LTCEUR',
-      'LTCUSD',
-      'MLNETH',
-      'MLNXBT',
-      'REPETH',
-      'REPXBT',
-      'REPEUR',
-      'REPUSD',
-      'XTZCAD',
-      'XTZETH',
-      'XTZEUR',
-      'XTZUSD',
-      'XTZXBT',
-      'XBTCAD',
-      'XBTCAD.d',
-      'XBTEUR',
-      'XBTEUR.d',
-      'XBTGBP',
-      'XBTGBP.d',
-      'XBTJPY',
-      'XBTJPY.d',
-      'XBTUSD',
-      'XBTUSD.d',
-      'XDGXBT',
-      'XLMXBT',
-      'XLMEUR',
-      'XLMUSD',
-      'XMRXBT',
-      'XMREUR',
-      'XMRUSD',
-      'XRPXBT',
-      'XRPCAD',
-      'XRPEUR',
-      'XRPJPY',
-      'XRPUSD',
-      'ZECXBT',
-      'ZECEUR',
-      'ZECJPY',
-      'ZECUSD'
-    ]
-
-    this.mapping = name => {
-      name = name.trim().replace('/', '')
-
-      if (
-        this.pairs.indexOf(name) !== -1 ||
-        ((name = name.replace('BTC', 'XBT')) && this.pairs.indexOf(name) !== -1)
-      ) {
-        if (name.indexOf('/') === -1) {
-          name = name.slice(0, name.length - 3) + '/' + name.slice(name.length - 3, name.length)
-        }
-
-        return name
-      }
-
-      return false
+    this.endpoints = {
+      PRODUCTS: [
+        'https://api.kraken.com/0/public/AssetPairs',
+        'https://futures.kraken.com/derivatives/api/v3/instruments',
+      ],
     }
 
     this.options = Object.assign(
       {
-        url: () => {
-          return `wss://ws.kraken.com`
-        }
+        url: (pair) => {
+          if (typeof this.specs[pair] !== 'undefined') {
+            return 'wss://futures.kraken.com/ws/v1'
+          } else {
+            return 'wss://ws.kraken.com'
+          }
+        },
       },
       this.options
     )
   }
 
-  connect(pair) {
-    if (!super.connect(pair)) return
-
-    this.api = new WebSocket(this.getUrl())
-
-    this.api.onmessage = event => this.emitData(this.format(JSON.parse(event.data)))
-    this.api.onopen = event => {
-      this.api.send(
-        JSON.stringify({
-          event: 'subscribe',
-          pair: [this.pair],
-          subscription: {
-            name: 'trade'
-          }
-        })
-      )
-
-      this.emitOpen(event)
+  getMatch(pair) {
+    if (this.products[pair]) {
+      return this.products[pair]
     }
-    this.api.onclose = this.emitClose.bind(this)
-    this.api.onerror = this.emitError.bind(this, { message: 'Websocket error' })
-  }
 
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  format(json) {
-    if (json && json[1] && json[1].length) {
-      return json[1].map(trade => [this.id, trade[2] * 1000, +trade[0], +trade[1], trade[3] === 'b' ? 1 : 0])
+    for (let id in this.products) {
+      if (this.products[id].toLowerCase() === pair.toLowerCase()) {
+        return this.products[id]
+      }
     }
 
     return false
+  }
+
+  formatProducts(response) {
+    const products = {}
+    const specs = {}
+
+    response.forEach((data, index) => {
+      if (data.instruments) {
+        for (let product of data.instruments) {
+          if (!product.tradeable) {
+            continue
+          }
+
+          const symbol = product.symbol.toUpperCase()
+
+          specs[symbol] = product.contractSize
+          products[symbol] = product.symbol
+        }
+      } else if (data.result) {
+        for (let id in data.result) {
+          if (data.result[id].wsname) {
+            products[data.result[id].altname] = data.result[id].wsname
+          }
+        }
+      }
+    })
+
+    return {
+      products,
+      specs,
+    }
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    const event = {
+      event: 'subscribe',
+    }
+
+    if (typeof this.specs[pair] !== 'undefined') {
+      // futures contract
+      event.product_ids = [this.match[pair]]
+      event.feed = 'trade'
+    } else {
+      // spot
+      event.pair = [this.match[pair]]
+      event.subscription = {
+        name: 'trade',
+      }
+    }
+
+    api.send(JSON.stringify(event))
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const event = {
+      event: 'unsubscribe',
+    }
+
+    if (typeof this.specs[pair] !== 'undefined') {
+      // futures contract
+      event.product_ids = [this.match[pair]]
+      event.feed = 'trade'
+    } else {
+      // spot
+      event.pair = [this.match[pair]]
+      event.subscription = {
+        name: 'trade',
+      }
+    }
+
+    api.send(JSON.stringify(event))
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json || json.event === 'heartbeat') {
+      return
+    }
+
+    if (json.feed === 'trade' && json.qty) {
+      // futures
+
+      return this.emitTrades(api.id, [
+        {
+          exchange: this.id + '_futures',
+          pair: json.product_id,
+          timestamp: json.time,
+          price: json.price,
+          size: json.qty / json.price,
+          side: json.side,
+        },
+      ])
+    } else if (json[1] && json[1].length) {
+      // spot
+
+      const localPair = this.mapPair(json[3])
+
+      return this.emitTrades(
+        api.id,
+        json[1].map((trade) => ({
+          exchange: this.id,
+          pair: localPair,
+          timestamp: trade[2] * 1000,
+          price: +trade[0],
+          size: +trade[1],
+          side: trade[3] === 'b' ? 'buy' : 'sell',
+        }))
+      )
+    }
+
+    return false
+  }
+
+  onApiBinded(api) {
+    if (/futures/.test(api.url)) {
+      this.startKeepAlive(api)
+    }
+  }
+
+  onApiUnbinded(api) {
+    if (/futures/.test(api.url)) {
+      this.stopKeepAlive(api)
+    }
   }
 }
 
