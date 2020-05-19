@@ -21,9 +21,9 @@ WORKDIR /$WORKDIR
 RUN   apk add --no-cache tini
 
 COPY  --from=builder /node_modules  ${WORKDIR}/node_modules
-ADD   . ${WORKDIR}
+COPY  src ${WORKDIR}/src
+COPY  index.js ${WORKDIR}
+COPY  config.json.example ${WORKDIR}
 
-EXPOSE $PORT
-
-ENTRYPOINT ["/sbin/tini", "--", "/usr/bin/node", "index"]
-CMD ["port=${PORT} filesLocation=${FILES_LOCATION} influxUrl=${INFLUX_URL} storage=${STORAGE}"]
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/usr/bin/node", "index"]

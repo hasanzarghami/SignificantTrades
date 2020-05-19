@@ -19,6 +19,7 @@
   "homepage": "https://github.com/Tucsky/SignificantTrades#readme",
   "dependencies": {
     "axios": "^0.18.0",
+    "decamelize": "^4.0.0",
     "elasticsearch": "^15.1.1",
     "express": "^4.17.1",
     "express-rate-limit": "^5.1.1",

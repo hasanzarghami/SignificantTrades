@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const decamelize = require('decamelize')
 
 console.log(`[init] reading config.json...`)
 
@@ -100,6 +101,19 @@ try {
 
 config = Object.assign(DEFAULTS, config)
 
+/* Override config with ENV variables using decamelize + uppercase 
+  (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
+ */
+
+Object.keys(config).forEach(k => {
+  config_to_env_key = decamelize(k, "_").toUpperCase()
+  config_env_value = process.env[config_to_env_key]
+  if (config_env_value) {
+    config[k] = config_env_value
+    console.log(`overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`)
+  }
+})
+
 /* Node arg based configuration
 */
 
@@ -136,7 +150,7 @@ if (config.storage) {
       config.storage = [config.storage.trim()]
     }
   }
-  console.log(config.storage);
+  
   for (let storage of config.storage) {
     const storagePath = path.resolve(__dirname, 'storage/' + storage + '.js');
     if (!fs.existsSync(storagePath)) {
@@ -149,5 +163,25 @@ if (config.storage) {
 
 /* Others validations
 */
+
+if (!config.api && config.websocket) {
+  console.warn(`[warning!] websocket is enabled but api is set to ${config.api}\n\t(ws server require an http server for the initial upgrade handshake)`)
+}
+
+if (!config.storage && config.collect) {
+  console.warn(`[warning!] server will not persist any of the data it is receiving`)
+}
+
+if (!config.collect && !config.api) {
+  console.warn(`[warning!] server has no purpose`)
+}
+
+if (!config.storage && !config.collect && (config.websocket || config.api)) {
+  console.warn(`[warning!] ${config.websocket && config.api ? 'ws and api are' : config.websocket ? 'ws is' : 'api is'} enabled but neither storage or collect is enabled (may be useless)`)
+}
+
+if (config.websocket && !config.collect) {
+  console.warn(`[warning!] collect is disabled but websocket is set to ${config.websocket} (may be useless)`)
+}
 
 module.exports = config
