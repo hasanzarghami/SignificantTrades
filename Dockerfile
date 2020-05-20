@@ -1,24 +1,29 @@
-FROM node:10
+FROM  mhart/alpine-node:12.1 as builder
+COPY  package*.json /
+RUN   set ex && npm install --production
 
-ARG WORKDIR
-ARG PORT
-ARG FILES_LOCATION
-ARG INFLUX_URL
-ARG STORAGE
+FROM  mhart/alpine-node:slim-12.1
 
-ENV PORT $PORT
-ENV WORKDIR $WORKDIR
-ENV FILES_LOCATION $FILES_LOCATION
-ENV INFLUX_URL $INFLUX_URL
-ENV STORAGE $STORAGE
+ARG   WORKDIR
+ARG   PORT
+ARG   FILES_LOCATION
+ARG   INFLUX_URL
+ARG   STORAGE
+
+ENV   PORT $PORT
+ENV   WORKDIR $WORKDIR
+ENV   FILES_LOCATION $FILES_LOCATION
+ENV   INFLUX_URL $INFLUX_URL
+ENV   STORAGE $STORAGE
 
 WORKDIR /$WORKDIR
 
-COPY package*.json ./
-RUN npm install --production && \
-    npm cache clean --force
+RUN   apk add --no-cache tini
 
-COPY . ./
+COPY  --from=builder /node_modules  ${WORKDIR}/node_modules
+COPY  src ${WORKDIR}/src
+COPY  index.js ${WORKDIR}
+COPY  config.json.example ${WORKDIR}
 
-EXPOSE $PORT
-CMD ["sh", "-c", "npm start port=${PORT} filesLocation=${FILES_LOCATION} influxUrl=${INFLUX_URL} storage=${STORAGE}"]
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/usr/bin/node", "index"]
