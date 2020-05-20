@@ -155,13 +155,11 @@ class Kraken extends Exchange {
     } else if (json[1] && json[1].length) {
       // spot
 
-      const localPair = this.mapPair(json[3])
-
       return this.emitTrades(
         api.id,
         json[1].map((trade) => ({
           exchange: this.id,
-          pair: localPair,
+          pair: json[3],
           timestamp: trade[2] * 1000,
           price: +trade[0],
           size: +trade[1],

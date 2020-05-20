@@ -201,7 +201,7 @@ class Exchange extends EventEmitter {
       )
 
       api.binaryType = 'arraybuffer'
-      
+
       api._pairs = []
 
       this.apis.push(api)
@@ -443,7 +443,6 @@ class Exchange extends EventEmitter {
     if (Array.isArray(this.products)) {
       this.indexedProducts = this.products.slice(0, this.products.length)
     } else if (typeof this.products === 'object') {
-      console.log(Object.keys(this.products));
       this.indexedProducts = Object.keys(this.products)
     }
 
