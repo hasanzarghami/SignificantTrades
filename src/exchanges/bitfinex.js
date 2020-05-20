@@ -14,7 +14,7 @@ class Bitfinex extends Exchange {
 
     this.options = Object.assign(
       {
-        url: 'wss://api-pub.bitfinex.com',
+        url: 'wss://api-pub.bitfinex.com/ws/2',
       },
       this.options
     )
@@ -72,6 +72,7 @@ class Bitfinex extends Exchange {
 
     if (json.event) {
       if (json.chanId) {
+        console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
         if (this.pairs.indexOf(json.pair) === -1) {
           debugger
         }
@@ -93,11 +94,13 @@ class Bitfinex extends Exchange {
     const channel = this.channels[json[0]]
 
     if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
+      console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
       channel.hasReceivedInitialData = true
       return
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
+      console.debug(`[${this.id}] trade ${JSON.stringify(json[2])}`)
       this.price = +json[2][3]
 
       return this.emitTrades(api.id, [
@@ -111,6 +114,8 @@ class Bitfinex extends Exchange {
         },
       ])
     } else if (channel.name === 'status' && json[1]) {
+      console.debug(`[${this.id}] status ${JSON.stringify(json[1])}`)
+
       return this.emitTrades(
         api.id,
         json[1]

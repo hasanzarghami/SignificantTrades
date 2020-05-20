@@ -38,12 +38,15 @@ class Ftx extends Exchange {
 
   formatProducts(data) {
     return data.result.reduce((obj, product) => {
-      let standardName = product.name
-        .replace('/', 'SPOT')
-        .replace(/-PERP$/g, '-USD')
-        .replace(/[/-]/g, '')
-
-      obj[standardName] = product.name
+      if (product.type === 'spot') {
+        obj[product.name.replace('/', '')] = product.name
+      } else if (product.type === 'future') {
+        if (/PERP$/.test(product.name)) {
+          obj[product.name.replace('-', 'USD-').replace('PERP', 'PERPETUAL')] = product.name
+        } else {
+          obj[product.name.replace('-', 'USD-')] = product.name
+        }
+      }
 
       return obj
     }, {})

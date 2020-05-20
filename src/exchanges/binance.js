@@ -42,10 +42,12 @@ class Binance extends Exchange {
 
     response.forEach((data) => {
       if (data.symbols) {
+        // futures (swap) response
         for (let product of data.symbols) {
           products[product.symbol + '-PERPETUAL'] = product.symbol.toLowerCase()
         }
       } else {
+        // spot response
         for (let product of data) {
           products[product.symbol] = product.symbol.toLowerCase()
         }

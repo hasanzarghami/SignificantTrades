@@ -4,8 +4,7 @@ const fs = require('fs')
 const {
   getIp,
   getHms,
-  formatAmount,
-  getPair,
+  parsePairsFromWsRequest,
   mapPair,
   groupByPairs,
   ago
@@ -19,6 +18,7 @@ class Server extends EventEmitter {
 
     this.options = options
     this.exchanges = exchanges || []
+    this.indexedProducts = {}
     this.storages = null
 
     /**
@@ -225,6 +225,26 @@ class Server extends EventEmitter {
         exchange.on('trades', this.processRaw.bind(this, exchange.id))
       }
 
+      exchange.on('index', (pairs) => {
+        for (let pair of pairs) {
+          if (this.indexedProducts[pair]) {
+            this.indexedProducts[pair].count++
+
+            if (this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1) {
+              this.indexedProducts[pair].exchanges.push(exchange.id)
+            }
+          } else {
+            this.indexedProducts[pair] = {
+              value: pair,
+              count: 1,
+              exchanges: [exchange.id]
+            }
+          }
+        }
+
+        this.dumpIndex()
+      })
+
       exchange.on('open', (event) => {
         this.broadcastJson({
           type: 'exchange_connected',
@@ -280,13 +300,18 @@ class Server extends EventEmitter {
 
     this.wss.on('connection', (ws, req) => {
       const ip = getIp(req)
-      const pair = getPair(req, mapPair(this.options.pairs[0]))
+      const pairs = parsePairsFromWsRequest(req, mapPair(this.options.pairs[0]))
 
-      ws.pair = pair
+      if (!pairs || !pairs.length) {
+        ws.close();
+        return
+      }
+
+      ws.pairs = pairs
 
       const data = {
         type: 'welcome',
-        pair,
+        pairs,
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -301,7 +326,7 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws${ws.admin ? '/admin' : ''}${ws.pair ? '/' + ws.pair : ''}] joined ${req.url} from ${
+        `[${ip}/ws${ws.admin ? '/admin' : ''}/${ws.pairs.join('+')}] joined ${req.url} from ${
           req.headers['origin']
         }`
       )
@@ -739,8 +764,12 @@ class Server extends EventEmitter {
     const groups = groupByPairs(trades, true)
 
     this.wss.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN && groups[client.pair]) {
-        client.send(JSON.stringify(groups[client.pair]))
+      if (client.readyState === WebSocket.OPEN) {
+        for (let i = 0; i < client.pairs.length; i++) {
+          if (groups[client.pairs[i]]) {
+            client.send(JSON.stringify(groups[client.pairs[i]]))
+          }
+        }
       }
     })
   }
@@ -912,7 +941,7 @@ class Server extends EventEmitter {
 
     for (let i = 0; i < length; i++) {
       const trade = data[i]
-      const identifier = source + data[i].pair
+      const identifier = source + trade.pair
 
       data[i].pair = this.matchs[source + data[i].pair].mapped
 
@@ -922,6 +951,7 @@ class Server extends EventEmitter {
       }
 
       if (trade.liquidation) {
+        // no aggregation for liquidation
         this.aggregated.push(trade)
         continue
       }
@@ -964,6 +994,16 @@ class Server extends EventEmitter {
 
       this.aggregated.splice(0, this.aggregated.length)
     }
+  }
+
+  dumpIndex() {
+    const symbols = Object.keys(this.indexedProducts);
+
+    fs.writeFileSync('./products', symbols.reduce((output, symbol) => {
+      output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(',')})\n`
+
+      return output
+    }, ''), {encoding:'utf8', flag:'w'})
   }
 }
 

@@ -23,7 +23,6 @@ class Bitmex extends Exchange {
   }
 
   getMatch(pair) {
-    console.log(pair, this.products)
     if (!this.products) {
       return false
     }

@@ -11,18 +11,20 @@ module.exports = {
     return ip
   },
 
-  getPair(req, defaultPair) {
-    let pair = req.url.substr(1);
+  parsePairsFromWsRequest(req, defaultPair) {
+    let pairs = req.url.substr(1);
 
-    if (!pair || !pair.length) {
+    if (!pairs || !pairs.length) {
       if (defaultPair) {
-        pair = defaultPair;
+        pairs = [defaultPair];
       } else {
-        pair = 'BTCUSD';
+        pairs = ['BTCUSD'];
       }
+    } else {
+      pairs = pairs.split('+').map(a => a.toUpperCase())
     }
 
-    return pair.toUpperCase();
+    return pairs;
   },
 
   mapPair(pair) {

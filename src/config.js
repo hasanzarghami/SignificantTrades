@@ -7,12 +7,17 @@ console.log(`[init] reading config.json...`)
  */
 
 const DEFAULTS = {
-  // default pair we track
+  // default pairs we track
   pairs: ['BTCUSD'],
 
   // mapping can be useful if you track btcusdt but save it as BTCUSD
+  // respectively mappedPair => stringified regex query
   mapping: {
-    // 'BTCUSD': /btcusdt/
+    /* 
+      // example:
+      "BTCUSD": "(?:XBT|BTC)-?USDT?-?(?:PERPETUAL)",
+      "ETHUSD": "ETH-?USDT?-?(?:PERPETUAL)"
+    */
   },
 
   // will connect to exchanges and subscribe to pairs on startup
@@ -125,7 +130,6 @@ if (process.argv.length > 2) {
     if (keyvalue.length === 1) {
       exchanges.push(arg)
     } else {
-      console.log(keyvalue[1])
       try {
         config[keyvalue[0]] = JSON.parse(keyvalue[1])
       } catch (error) {
@@ -163,8 +167,6 @@ if (config.storage) {
 
 /* Others validations
  */
-
-console.log(config.pairs, typeof config.pairs, Array.isArray(config.pairs))
 
 if (config.pair) {
   config.pairs = config.pair.split(',')

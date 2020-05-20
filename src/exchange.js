@@ -199,9 +199,9 @@ class Exchange extends EventEmitter {
       console.debug(
         `[${this.id}] initiate new ws connection ${url} (${api.id}) for pair ${pair}`
       )
-      
-      api.binaryType = 'arraybuffer'
 
+      api.binaryType = 'arraybuffer'
+      
       api._pairs = []
 
       this.apis.push(api)
@@ -329,6 +329,16 @@ class Exchange extends EventEmitter {
    * Reconnect api
    * @param {WebSocket} api
    */
+  reconnectApi(api) {
+    console.debug(`[${this.id}] reconnect api (url: ${api.url}, _pairs: ${api._pairs.join(', ')})`)
+
+    this.reconnectPairs(api._pairs)
+  }
+
+  /**
+   * Reconnect pairs
+   * @param {string[]} pairs (local)
+   */
   reconnectPairs(pairs) {
     console.debug(`[${this.id}] reconnect pairs ${pairs.join(',')}`)
 
@@ -416,9 +426,28 @@ class Exchange extends EventEmitter {
           this.products = null
         }
 
+        this.indexProducts()
+
         resolve(this.products)
       })
     })
+  }
+
+  indexProducts() {
+    this.indexedProducts = []
+
+    if (!this.products) {
+      return
+    }
+
+    if (Array.isArray(this.products)) {
+      this.indexedProducts = this.products.slice(0, this.products.length)
+    } else if (typeof this.products === 'object') {
+      console.log(Object.keys(this.products));
+      this.indexedProducts = Object.keys(this.products)
+    }
+
+    this.emit('index', this.indexedProducts)
   }
 
   /**
