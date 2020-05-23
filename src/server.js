@@ -98,7 +98,7 @@ class Server extends EventEmitter {
         // profile exchanges connections (keep alive)
         this._activityMonitoringInterval = setInterval(
           this.monitorExchangesActivity.bind(this),
-          1000 * 15
+          1000 * 60
         )
 
         if (this.storages) {
@@ -220,10 +220,12 @@ class Server extends EventEmitter {
   handleExchangesEvents() {
     this.exchanges.forEach((exchange) => {
       if (this.options.aggr) {
-        exchange.on('trades', this.processAggregate.bind(this, exchange.id))
+        exchange.on('trades', this.aggregateTrades.bind(this, exchange.id))
       } else {
-        exchange.on('trades', this.processRaw.bind(this, exchange.id))
+        exchange.on('trades', this.dispatchTrades.bind(this, exchange.id))
       }
+
+      exchange.on('liquidations', this.dispatchTrades.bind(this, exchange.id))
 
       exchange.on('index', (pairs) => {
         for (let pair of pairs) {
@@ -804,7 +806,7 @@ class Server extends EventEmitter {
           )
 
           exchange.reconnectApi(exchange.apis[i])
-        } else if (now - exchange.apis[i].timestamp > 1000 * 60 * 5) {
+        } else if (now - exchange.apis[i].timestamp > 1000 * 60 * 2) {
           console.log(
             '[warning] ' +
               exchange.id +
@@ -918,7 +920,7 @@ class Server extends EventEmitter {
     })
   }
 
-  processRaw(exchange, { source, data }) {
+  dispatchTrades(exchange, { source, data }) {
     for (let i = 0; i < data.length; i++) {
       data[i].pair = this.matchs[source + data[i].pair].mapped
 
@@ -928,14 +930,14 @@ class Server extends EventEmitter {
       }
     }
       
-    if (!this.options.delay) {
+    if (!this.options.delay || this.options.aggr) {
       this.broadcastTrades(data)
     } else {
       Array.prototype.push.apply(this.delayed, data)
     }
   }
 
-  processAggregate(exchange, { source, data }) {
+  aggregateTrades(exchange, { source, data }) {
     const now = +new Date()
     const length = data.length
 
@@ -948,12 +950,6 @@ class Server extends EventEmitter {
       // push for storage...
       if (this.storages) {
         this.chunk.push(data[i])
-      }
-
-      if (trade.liquidation) {
-        // no aggregation for liquidation
-        this.aggregated.push(trade)
-        continue
       }
 
       if (this.aggregating[identifier]) {

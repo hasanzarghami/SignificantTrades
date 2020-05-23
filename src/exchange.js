@@ -3,7 +3,8 @@ const axios = require('axios')
 const WebSocket = require('ws')
 const {
   ID,
-  mapPair
+  mapPair,
+  getHms
 } = require('./helper')
 
 require('./typedef')
@@ -53,6 +54,12 @@ class Exchange extends EventEmitter {
      * @type {{[remotePair: string]: string]}}
      */
     this.mapping = {}
+
+    /**
+     * Reconnection timeout delay by apiUrl
+     * @type {{[apiUrl: string]: number]}}
+     */
+    this.reconnectionDelay = {}
 
     /**
      * Cached active timeouts by pair
@@ -112,7 +119,7 @@ class Exchange extends EventEmitter {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
-    if (this.match[pair]) {
+    if (this.match[pair] || Object.values(this.match).indexOf(match) !== -1) {
       return Promise.reject(`${this.id} already connected to ${pair}`)
     }
 
@@ -208,11 +215,13 @@ class Exchange extends EventEmitter {
 
       api._send = api.send
       api.send = (data) => {
-        console.debug(
-          `[${this.id}] sending ${data.substr(0, 64)}${
-            data.length > 64 ? '...' : ''
-          } to ${api.url}`
-        )
+        if (!/ping|pong/.test(data)) {
+          console.debug(
+            `[${this.id}] sending ${data.substr(0, 64)}${
+              data.length > 64 ? '...' : ''
+            } to ${api.url}`
+          )
+        }
 
         api._send.apply(api, [data])
       }
@@ -224,6 +233,11 @@ class Exchange extends EventEmitter {
       }
 
       api.onopen = (event) => {
+        if (typeof this.reconnectionDelay[url] !== 'undefined') {
+          console.debug(`[${this.id}] clear reconnection delay (${url})`)
+          delete this.reconnectionDelay[url];
+        }
+
         if (this.connecting[url]) {
           this.connecting[url].resolver(true)
           delete this.connecting[url]
@@ -248,15 +262,20 @@ class Exchange extends EventEmitter {
         if (api._pairs.length) {
           const pairsToReconnect = api._pairs.slice(0, api._pairs.length);
 
-          api._pairs.forEach((pair) => this.unlink(pair))
-
           console.log(
             `[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`
           )
 
-          setTimeout(() => {
-            this.reconnectPairs(pairsToReconnect)
-          }, 3000)
+          Promise.all(api._pairs.map((pair) => this.unlink(pair))).then(() => {
+            const delay = this.reconnectionDelay[api.url] || 0
+
+            setTimeout(() => {
+              this.reconnectPairs(pairsToReconnect)
+            }, delay)
+
+            this.reconnectionDelay[api.url] = Math.min(1000 * 30, (delay || 1000) * 1.5)
+            console.debug(`[${this.id}] increment reconnection delay (${url}) = ${getHms(this.reconnectionDelay[api.url])}`)
+          })
         }
       }
 
@@ -338,13 +357,16 @@ class Exchange extends EventEmitter {
   /**
    * Reconnect pairs
    * @param {string[]} pairs (local)
+   * @returns {Promise<any>}
    */
   reconnectPairs(pairs) {
-    console.debug(`[${this.id}] reconnect pairs ${pairs.join(',')}`)
+    const pairsToReconnect = pairs.slice(0, pairs.length)
 
-    Promise.all(pairs.map((pair) => this.unlink(pair))).then(
-      pairs.map((pair) => this.link(pair))
-    )
+    console.debug(`[${this.id}] reconnect pairs ${pairsToReconnect.join(',')}`)
+
+    Promise.all(pairsToReconnect.map((pair) => this.unlink(pair))).then(() => {
+      return Promise.all(pairsToReconnect.map((pair) => this.link(pair)))
+    })
   }
 
   /**
@@ -560,6 +582,24 @@ class Exchange extends EventEmitter {
     }
 
     this.emit('trades', {
+      source: source,
+      data: trades,
+    })
+
+    return true
+  }
+
+  /**
+   * Emit liquidations to server
+   * @param {string} source api id
+   * @param {Trade[]} trades
+   */
+  emitLiquidations(source, trades) {
+    if (!trades || !trades.length) {
+      return
+    }
+
+    this.emit('liquidations', {
       source: source,
       data: trades,
     })

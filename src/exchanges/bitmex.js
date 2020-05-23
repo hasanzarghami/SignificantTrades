@@ -23,27 +23,38 @@ class Bitmex extends Exchange {
   }
 
   getMatch(pair) {
-    if (!this.products) {
-      return false
+    let remotePair = this.products[pair]
+
+    if (!remotePair) {
+      for (let name in this.products) {
+        if (pair === this.products[name]) {
+          remotePair = this.products[name]
+          break
+        }
+      }
     }
 
-    if (this.products.indexOf(pair) !== -1) {
-      return pair
-    }
-
-    return false
+    return remotePair || false
   }
 
   formatProducts(data) {
-    const pairs = []
+    const products = {}
 
     for (let product of data) {
-      pairs.push(product.symbol)
+      let pair = product.symbol.replace('XBT', 'BTC')
+
+      if (!data.expiry) {
+        pair = pair + '-PERPETUAL';
+      }
+
+      products[pair] = product.symbol
 
       this.pairCurrencies[product.symbol] = product.quoteCurrency
     }
 
-    return pairs
+    return {
+      products
+    }
   }
 
   /**
@@ -87,7 +98,7 @@ class Bitmex extends Exchange {
 
     if (json && json.data && json.data.length) {
       if (json.table === 'liquidation' && json.action === 'insert') {
-        return this.emitTrades(
+        return this.emitLiquidations(
           api.id,
           json.data.map((trade) => ({
             exchange: this.id,

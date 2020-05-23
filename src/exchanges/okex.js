@@ -67,7 +67,7 @@ class Okex extends Exchange {
         } else if (/-SWAP/.test(product.instrument_id)) {
           // swap
 
-          pair = product.base_currency + product.quote_currency + '-' + 'SWAP'
+          pair = product.base_currency + product.quote_currency + '-' + 'PERPETUAL'
           
           products[pair] = product.instrument_id
           specs[product.instrument_id] = +product.contract_val
@@ -242,7 +242,7 @@ class Okex extends Exchange {
         `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`
       )
       .then(response => {
-        if (!response.data || (response.data.error && response.data.error.length)) {
+        if (!this.apis.length || !response.data || (response.data.error && response.data.error.length)) {
           console.log('getLiquidations => then => contain error(s)')
           this.emitError(new Error(response.data.error.join('\n')))
           return
@@ -259,17 +259,16 @@ class Okex extends Exchange {
           return
         }
 
-        console.log(productType, productId, liquidations.map(trade => trade.price + ' * ' + trade.size + ' (' + ((trade.size * this.specs[productId]) / trade.price) + ')'))
-
         this.liquidationProductsReferences[productId] = +new Date(liquidations[0].created_at)
 
-        this.emitTrades(api.id, 
+        this.emitLiquidations(this.apis[0].id, 
           liquidations.map(trade => {
             const timestamp = +new Date(trade.created_at)
             const size = (trade.size * this.specs[productId]) / trade.price
 
             return {
               exchange: this.id + '_futures', 
+              pair: productId,
               timestamp, 
               price: +trade.price, 
               size: size, 

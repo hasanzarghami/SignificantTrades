@@ -19,17 +19,34 @@ class Gdax extends Exchange {
   }
 
   getMatch(pair) {
-    const remotePair = pair.substr(0, 3) + '-' + pair.substr(3, pair.length)
+    if (!this.products) {
+      return false
+    }
 
-    if (this.products.indexOf(remotePair) !== -1) {
-      return remotePair
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
+
+    // allow match to remote pair syntax also
+    for (let localPair in this.products) {
+      if (this.products[localPair] === pair) {
+        return this.products[localPair]
+      }
     }
 
     return false
   }
 
   formatProducts(data) {
-    return data.map((a) => a.id)
+    const products = {}
+
+    for (let symbol of data) {
+      products[symbol.id.replace('-', '')] = symbol.id
+    }
+
+    return {
+      products
+    }
   }
 
   /**

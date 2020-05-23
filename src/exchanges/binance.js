@@ -133,7 +133,7 @@ class Binance extends Exchange {
 
         return true
       } else if (json.e === 'forceOrder') {
-        return this.emitTrades(api.id, [
+        return this.emitLiquidations(api.id, [
           {
             exchange: this.id + '_futures',
             pair: json.o.s.toLowerCase(),

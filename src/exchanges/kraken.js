@@ -18,7 +18,7 @@ class Kraken extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
-          if (typeof this.specs[pair] !== 'undefined') {
+          if (typeof this.specs[this.match[pair]] !== 'undefined') {
             return 'wss://futures.kraken.com/ws/v1'
           } else {
             return 'wss://ws.kraken.com'
@@ -54,15 +54,20 @@ class Kraken extends Exchange {
             continue
           }
 
-          const symbol = product.symbol.toUpperCase()
+          const remotePair = product.symbol.toUpperCase()
+          let pair = remotePair
 
-          specs[symbol] = product.contractSize
-          products[symbol] = product.symbol
+          if (/^PI_/i.test(pair)) {
+            pair = pair.replace(/^PI_/, '').replace('XBT', 'BTC') + '-PERPETUAL'
+          }
+
+          specs[remotePair] = product.contractSize
+          products[pair] = remotePair
         }
       } else if (data.result) {
         for (let id in data.result) {
           if (data.result[id].wsname) {
-            products[data.result[id].altname] = data.result[id].wsname
+            products[data.result[id].altname.replace('XBT', 'BTC')] = data.result[id].wsname
           }
         }
       }
@@ -88,7 +93,7 @@ class Kraken extends Exchange {
       event: 'subscribe',
     }
 
-    if (typeof this.specs[pair] !== 'undefined') {
+    if (typeof this.specs[this.match[pair]] !== 'undefined') {
       // futures contract
       event.product_ids = [this.match[pair]]
       event.feed = 'trade'

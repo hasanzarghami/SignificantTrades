@@ -116,7 +116,7 @@ class Bitfinex extends Exchange {
     } else if (channel.name === 'status' && json[1]) {
       console.debug(`[${this.id}] status ${JSON.stringify(json[1])}`)
 
-      return this.emitTrades(
+      return this.emitLiquidations(
         api.id,
         json[1]
           .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
