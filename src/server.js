@@ -7,7 +7,7 @@ const {
   parsePairsFromWsRequest,
   mapPair,
   groupByPairs,
-  ago
+  ago,
 } = require('./helper')
 const express = require('express')
 const rateLimit = require('express-rate-limit')
@@ -70,7 +70,7 @@ class Server extends EventEmitter {
         )
         this.handleExchangesEvents()
         this.connectExchanges()
-/*
+        /*
         setTimeout(() => {
           this.connectPairs(['XMRUSD'])
         }, 10000)
@@ -120,12 +120,18 @@ class Server extends EventEmitter {
         this.createWSServer()
 
         if (this.options.aggr) {
-          this._broadcastAggregatedTradesInterval = setInterval(this.broadcastAggregatedTrades.bind(this), 50)
+          this._broadcastAggregatedTradesInterval = setInterval(
+            this.broadcastAggregatedTrades.bind(this),
+            50
+          )
         }
       }
 
       // update admin & banned ip
-      this._updateIpsInterval = setInterval(this.updateIps.bind(this), 1000 * 60)
+      this._updateIpsInterval = setInterval(
+        this.updateIps.bind(this),
+        1000 * 60
+      )
 
       if (this.options.api) {
         setTimeout(() => {
@@ -232,14 +238,16 @@ class Server extends EventEmitter {
           if (this.indexedProducts[pair]) {
             this.indexedProducts[pair].count++
 
-            if (this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1) {
+            if (
+              this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1
+            ) {
               this.indexedProducts[pair].exchanges.push(exchange.id)
             }
           } else {
             this.indexedProducts[pair] = {
               value: pair,
               count: 1,
-              exchanges: [exchange.id]
+              exchanges: [exchange.id],
             }
           }
         }
@@ -254,15 +262,25 @@ class Server extends EventEmitter {
         })
       })
 
+      exchange.on('unmatch', (localPair, remotePair, source) => {
+        if (this.matchs[source + remotePair]) {
+          delete this.matchs[source + remotePair];
+        }
+      });
+
       exchange.on('match', (localPair, remotePair, source) => {
         if (this.matchs[remotePair]) {
           return
         }
-        
+
         this.matchs[source + remotePair] = {
+          source,
+          exchange: exchange.id,
           remote: remotePair,
           local: localPair,
-          mapped: mapPair(localPair)
+          mapped: mapPair(localPair),
+          hit: 0,
+          timestamp: null
         }
       })
 
@@ -280,7 +298,7 @@ class Server extends EventEmitter {
           id: exchange.id,
         })
 
-        this.dumpConnections();
+        this.dumpConnections()
       })
     })
   }
@@ -305,7 +323,7 @@ class Server extends EventEmitter {
       const pairs = parsePairsFromWsRequest(req, mapPair(this.options.pairs[0]))
 
       if (!pairs || !pairs.length) {
-        ws.close();
+        ws.close()
         return
       }
 
@@ -328,9 +346,9 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws${ws.admin ? '/admin' : ''}/${ws.pairs.join('+')}] joined ${req.url} from ${
-          req.headers['origin']
-        }`
+        `[${ip}/ws${ws.admin ? '/admin' : ''}/${ws.pairs.join('+')}] joined ${
+          req.url
+        } from ${req.headers['origin']}`
       )
 
       this.emit('connections', this.wss.clients.size)
@@ -397,8 +415,8 @@ class Server extends EventEmitter {
         })
       },
     })
-    
-    app.set('trust proxy', 1);
+
+    app.set('trust proxy', 1)
 
     // otherwise ip are all the same
     app.set('trust proxy', 1)
@@ -604,38 +622,19 @@ class Server extends EventEmitter {
     this._dumpConnectionsTimeout = setTimeout(() => {
       const structPairs = {}
 
-      for (let exchange of this.exchanges) {
-        for (let api of exchange.apis) {
-          for (let localPair of api._pairs) {
-            const remotePair = exchange.match[localPair]
-
-            if (!structPairs[localPair]) {
-              structPairs[localPair] = {
-                remote_pair: [],
-                api: [],
-              }
-            }
-
-            if (structPairs[localPair].remote_pair.indexOf(remotePair) === -1) {
-              structPairs[localPair].remote_pair.push(remotePair)
-            }
-
-            if (structPairs[localPair].api.indexOf(api.url) === -1) {
-              structPairs[localPair].api.push(api.url)
-            }
-          }
+      for (let identifier in this.matchs) {
+        const match = this.matchs[identifier]
+        
+        structPairs[match.exchange + ':' + match.remote] = {
+          local: match.local,
+          mapped: match.mapped,
+          hit: match.hit,
+          ping: match.timestamp ? ago(match.timestamp) : 'never'
         }
       }
 
-      for (let localPair in structPairs) {
-        structPairs[localPair].api = structPairs[localPair].api.join(', ')
-        structPairs[localPair].remote_pair = structPairs[
-          localPair
-        ].remote_pair.join(', ')
-      }
-
       console.table(structPairs)
-    })
+    }, 1000)
 
     return Promise.resolve()
   }
@@ -732,7 +731,7 @@ class Server extends EventEmitter {
             console.debug(`[server/disconnectPairs/${exchange.id}] ${err}`)
 
             if (err instanceof Error) {
-              console.error(err);
+              console.error(err)
             }
           })
         )
@@ -777,49 +776,50 @@ class Server extends EventEmitter {
   }
 
   monitorExchangesActivity() {
+    this.dumpConnections()
+
     const now = +new Date()
 
-    const activity = []
-    let showActivityReport = false;
+    const sources = []
+    const activity = {}
+    const pairs = {}
 
-    this.exchanges.forEach((exchange) => {
-      if (!exchange.apis.length) {
-        return
+    for (let identifier in this.matchs) {
+      const match = this.matchs[identifier]
+
+      if (!activity[match.source]) {
+        activity[match.source] = []
+        pairs[match.source] = []
       }
 
-      for (let i = 0; i < exchange.apis.length; i++) {
-        activity[exchange.apis[i].url] = {
-          exchange: exchange.id,
-          pairs: exchange.apis[i]._pairs.join(','),
-          activity: exchange.apis[i].timestamp ? ago(exchange.apis[i].timestamp) + ' ago' : 'N/A'
-        }
+      if (!match.hit) {
+        console.log(`[warning] 0 hit for ${match.exchange}:${match.remote} (warning)`);
 
-        if (exchange.apis[i].timestamp && now - exchange.apis[i].timestamp > 1000 * 10) {
-          showActivityReport = true
-        }
+      } else if (match.timestamp) {
+        activity[match.source].push(now - match.timestamp)
+      }
 
-        if (!exchange.apis[i].timestamp) {
-          console.log(
-            `[warning] no data sent from ${exchange.id} ${exchange.apis[
-              i
-            ]._pairs.join(',')}'s api`
-          )
+      pairs[match.source].push(match.remote)
+    }
 
-          exchange.reconnectApi(exchange.apis[i])
-        } else if (now - exchange.apis[i].timestamp > 1000 * 60 * 2) {
-          console.log(
-            '[warning] ' +
-              exchange.id +
-              " hasn't sent any data since more than 5 minutes"
-          )
+    for (let source in activity) {
+      const avg = activity[source].reduce((sum, a) => sum + a, 0) / activity[source].length
 
-          exchange.reconnectApi(exchange.apis[i])
+      if (avg > this.options.reconnectionThreshold) {
+        console.log(`[warning] api ${source} reached reconnection threshold ${getHms(avg)} > ${getHms(this.options.reconnectionThreshold)}\n\t-> reconnect ${pairs[source].join(', ')}`);
+
+        sources.push(source)
+      }
+    }
+
+    for (let exchange of this.exchanges) {
+      for (let api of exchange.apis) {
+        if (sources.indexOf(api.id) !== -1) {
+          exchange.reconnectApi(api)
+
+          sources.splice(sources.indexOf(api.id), 1)
         }
       }
-    })
-
-    if (showActivityReport) {
-      console.table(activity)
     }
   }
 
@@ -929,7 +929,7 @@ class Server extends EventEmitter {
         this.chunk.push(data[i])
       }
     }
-      
+
     if (!this.options.delay || this.options.aggr) {
       this.broadcastTrades(data)
     } else {
@@ -945,7 +945,10 @@ class Server extends EventEmitter {
       const trade = data[i]
       const identifier = source + trade.pair
 
-      data[i].pair = this.matchs[source + data[i].pair].mapped
+      this.matchs[identifier].hit++
+      this.matchs[identifier].timestamp = now
+
+      data[i].pair = this.matchs[identifier].mapped
 
       // push for storage...
       if (this.storages) {
@@ -955,7 +958,10 @@ class Server extends EventEmitter {
       if (this.aggregating[identifier]) {
         const queuedTrade = this.aggregating[identifier]
 
-        if (queuedTrade.timestamp === trade.timestamp && queuedTrade.side === trade.side) {
+        if (
+          queuedTrade.timestamp === trade.timestamp &&
+          queuedTrade.side === trade.side
+        ) {
           queuedTrade.size += trade.size
           queuedTrade.price += trade.price * trade.size
           continue
@@ -993,13 +999,19 @@ class Server extends EventEmitter {
   }
 
   dumpIndex() {
-    const symbols = Object.keys(this.indexedProducts);
+    const symbols = Object.keys(this.indexedProducts)
 
-    fs.writeFileSync('./products', symbols.reduce((output, symbol) => {
-      output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(',')})\n`
+    fs.writeFileSync(
+      './products',
+      symbols.reduce((output, symbol) => {
+        output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(
+          ','
+        )})\n`
 
-      return output
-    }, ''), {encoding:'utf8', flag:'w'})
+        return output
+      }, ''),
+      { encoding: 'utf8', flag: 'w' }
+    )
   }
 }
 

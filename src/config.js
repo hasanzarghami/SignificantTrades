@@ -95,6 +95,9 @@ const DEFAULTS = {
 
   // default place to store the trades data files
   filesLocation: './data',
+
+  // reconnect exchange api if no data received since n ms (default 1m)
+  reconnectionThreshold: 1000 * 60,
 }
 
 /* Load custom server configuration

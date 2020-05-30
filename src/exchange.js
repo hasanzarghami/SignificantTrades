@@ -119,8 +119,12 @@ class Exchange extends EventEmitter {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
-    if (this.match[pair] || Object.values(this.match).indexOf(match) !== -1) {
-      return Promise.reject(`${this.id} already connected to ${pair}`)
+    pair = this.fixLocalPair(pair, match);
+
+    for (let localPair in this.match) {
+      if (pair === localPair || (this.match[localPair] === match && this.getUrl(pair) === this.getUrl(localPair))) {
+        return Promise.reject(`${this.id} already connected to ${pair} (${this.id}:${match})`)
+      }
     }
 
     this.pairs.push(match)
@@ -161,6 +165,8 @@ class Exchange extends EventEmitter {
 
     // call exchange specific unsubscribe function
     this.unsubscribe(api, pair)
+
+    this.emit('unmatch', pair, this.match[pair], api.id)
 
     this.pairs.splice(this.pairs.indexOf(this.match[pair]), 1)
     delete this.match[pair]
@@ -634,7 +640,9 @@ class Exchange extends EventEmitter {
     console.debug(`[${this.id}] setup keepalive for ws ${api.url}`)
 
     this.keepAliveIntervals[api.url] = setInterval(() => {
-      api.send(JSON.stringify(payload))
+      if (api.readyState === WebSocket.OPEN) {
+        api.send(JSON.stringify(payload))
+      }
     }, every)
   }
 
@@ -647,6 +655,23 @@ class Exchange extends EventEmitter {
 
     clearInterval(this.keepAliveIntervals[api.url]);
     delete this.keepAliveIntervals[api.url];
+  }
+
+  fixLocalPair(localPair, remotePair) {
+    if (this.products && !Array.isArray(this.products) && !this.products[localPair]) {
+      // remote pair match ? fix local pair...
+
+      console.log('FIX LOCAL PAIR', this.id, 'provided local pair (prolly remote):', localPair, 'matched with remote pair:', remotePair);
+
+      for (let _localPair in this.products) {
+        if (remotePair === this.products[_localPair]) {
+          console.log('found true local pair', this.id, _localPair);
+          return _localPair
+        }
+      }
+    }
+
+    return localPair
   }
 }
 

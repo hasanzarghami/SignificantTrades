@@ -71,7 +71,7 @@ class Bitfinex extends Exchange {
     const json = JSON.parse(event.data)
 
     if (json.event) {
-      if (json.chanId) {
+      if (json.chanId && json.pair) {
         console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
         if (this.pairs.indexOf(json.pair) === -1) {
           debugger
@@ -100,7 +100,6 @@ class Bitfinex extends Exchange {
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
-      console.debug(`[${this.id}] trade ${JSON.stringify(json[2])}`)
       this.price = +json[2][3]
 
       return this.emitTrades(api.id, [

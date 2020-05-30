@@ -43,7 +43,7 @@ class Bitmex extends Exchange {
     for (let product of data) {
       let pair = product.symbol.replace('XBT', 'BTC')
 
-      if (!data.expiry) {
+      if (!product.expiry) {
         pair = pair + '-PERPETUAL';
       }
 
