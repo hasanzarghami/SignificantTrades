@@ -62,13 +62,31 @@ class BinanceFutures extends Exchange {
 
     if (trade && trade.data) {
       if (trade.data.e === 'trade') {
-        return [[this.id, trade.data.T, +trade.data.p, +trade.data.q, trade.data.m ? 0 : 1]]
+        const currentPrice = +trade.data.p;
+        const previousPrice = this.price || 0
+
+        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
+          console.log(event);
+        }
+
+        this.price = currentPrice
+
+        return [[this.id, trade.data.T, currentPrice, +trade.data.q, trade.data.m ? 0 : 1]]
       } else if (trade.data.e === 'forceOrder') {
+        const currentPrice = +trade.data.o.p;
+        const previousPrice = this.price || 0
+
+        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
+          console.log(event);
+        }
+
+        this.price = currentPrice
+
         return [
           [
             this.id,
             trade.data.o.T,
-            +trade.data.o.p,
+            currentPrice,
             +trade.data.o.q,
             trade.data.o.S === 'BUY' ? 1 : 0,
             1
