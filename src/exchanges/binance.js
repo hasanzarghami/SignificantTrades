@@ -7,6 +7,7 @@ class Binance extends Exchange {
     this.id = 'binance'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
+    this.prices = {}
 
     this.endpoints = {
       PRODUCTS: [
@@ -120,25 +121,41 @@ class Binance extends Exchange {
       return
     } else if (api.url === 'wss://fstream.binance.com/ws') {
       if (json.e === 'trade') {
+        const currentPrice = +json.p;
+        const previousPrice = this.prices[api.id + json.s] || 0
+
+        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
+          console.log(event);
+        }
+
+        this.prices[api.id + json.s] = currentPrice
+
         return this.emitTrades(api.id, [
           {
             exchange: this.id + '_futures',
             pair: json.s.toLowerCase(),
             timestamp: json.T,
-            price: +json.p,
+            price: currentPrice,
             size: +json.q,
             side: json.m ? 'sell' : 'buy',
           },
         ])
-
-        return true
       } else if (json.e === 'forceOrder') {
+        const currentPrice = +json.p;
+        const previousPrice = this.prices[api.id + json.o.T] || 0
+
+        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
+          console.log(event);
+        }
+
+        this.prices[api.id + json.o.T] = currentPrice
+
         return this.emitLiquidations(api.id, [
           {
             exchange: this.id + '_futures',
             pair: json.o.s.toLowerCase(),
             timestamp: json.o.T,
-            price: +json.o.p,
+            price: price,
             size: +json.o.q,
             side: json.o.S === 'BUY' ? 'buy' : 'sell',
             liquidation: true,

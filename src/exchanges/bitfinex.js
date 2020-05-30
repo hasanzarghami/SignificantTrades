@@ -5,8 +5,8 @@ class Bitfinex extends Exchange {
     super(options)
 
     this.id = 'bitfinex'
-
     this.channels = {}
+    this.prices = {}
 
     this.endpoints = {
       PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
@@ -100,7 +100,7 @@ class Bitfinex extends Exchange {
     }
 
     if (channel.name === 'trades' && json[1] === 'te') {
-      this.price = +json[2][3]
+      this.prices[api.id + channel.pair] = +json[2][3]
 
       return this.emitTrades(api.id, [
         {
@@ -120,11 +120,13 @@ class Bitfinex extends Exchange {
         json[1]
           .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
           .map((a) => {
+            const pair = a[4].substring(1);
+
             return {
               exchange: this.id,
               pair: a[4].substring(1),
               timestamp: parseInt(a[2]),
-              price: this.price,
+              price: this.prices[api.id + pair],
               size: Math.abs(a[5]),
               side: a[5] > 1 ? 'buy' : 'sell',
               liquidation: true,
