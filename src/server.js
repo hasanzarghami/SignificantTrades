@@ -319,9 +319,6 @@ class Server extends EventEmitter {
     
     app.set('trust proxy', 1);
 
-    //  apply to all requests
-    app.use(limiter)
-
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
@@ -346,6 +343,9 @@ class Server extends EventEmitter {
         next()
       }
     })
+
+    //  apply to all requests
+    app.use(limiter)
 
     app.get('/', function (req, res) {
       res.json({
