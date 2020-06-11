@@ -118,12 +118,10 @@ class Ftx extends Exchange {
   }
 
   onApiBinded(api) {
-    console.log('ftx api binded', api);
     this.startKeepAlive(api, {op: 'ping'}, 15000);
   }
 
   onApiUnbinded(api) {
-    console.log('ftx api unbinded', api);
     this.stopKeepAlive(api);
   }
 }

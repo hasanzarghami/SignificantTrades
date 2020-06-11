@@ -18,7 +18,7 @@ module.exports = {
       if (defaultPair) {
         pairs = [defaultPair];
       } else {
-        pairs = ['BTCUSD'];
+        pairs = [];
       }
     } else {
       pairs = pairs.split('+').map(a => a.toUpperCase())

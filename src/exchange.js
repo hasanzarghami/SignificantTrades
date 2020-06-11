@@ -586,7 +586,7 @@ class Exchange extends EventEmitter {
     if (!trades || !trades.length) {
       return
     }
-
+    
     this.emit('trades', {
       source: source,
       data: trades,

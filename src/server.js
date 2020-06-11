@@ -264,9 +264,9 @@ class Server extends EventEmitter {
 
       exchange.on('unmatch', (localPair, remotePair, source) => {
         if (this.matchs[source + remotePair]) {
-          delete this.matchs[source + remotePair];
+          delete this.matchs[source + remotePair]
         }
-      });
+      })
 
       exchange.on('match', (localPair, remotePair, source) => {
         if (this.matchs[remotePair]) {
@@ -280,7 +280,7 @@ class Server extends EventEmitter {
           local: localPair,
           mapped: mapPair(localPair),
           hit: 0,
-          timestamp: null
+          timestamp: null,
         }
       })
 
@@ -320,18 +320,17 @@ class Server extends EventEmitter {
 
     this.wss.on('connection', (ws, req) => {
       const ip = getIp(req)
-      const pairs = parsePairsFromWsRequest(req, mapPair(this.options.pairs[0]))
+      const pairs = parsePairsFromWsRequest(req)
 
-      if (!pairs || !pairs.length) {
-        ws.close()
-        return
+      if (pairs && pairs.length) {
+        ws.pairs = pairs
       }
 
       ws.pairs = pairs
 
       const data = {
         type: 'welcome',
-        pairs,
+        supportedPairs: Object.values(this.matchs).map((a) => a.mapped),
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -354,6 +353,25 @@ class Server extends EventEmitter {
       this.emit('connections', this.wss.clients.size)
 
       ws.send(JSON.stringify(data))
+
+      ws.on('message', (event) => {
+        const message = event.trim()
+
+        const pairs = message.length
+          ? message
+              .split('+')
+              .map((a) => a.trim())
+              .filter((a) => a.length)
+          : []
+
+        console.log(
+          `[${ip}/ws${ws.admin ? '/admin' : ''}] subscribe to ${pairs.join(
+            ' + '
+          )}`
+        )
+
+        ws.pairs = pairs
+      })
 
       ws.on('close', (event) => {
         let error = null
@@ -486,7 +504,7 @@ class Server extends EventEmitter {
     })
 
     app.get(
-      '/:pair?/historical/:from/:to/:timeframe?/:exchanges?',
+      '/:pairs?/historical/:from/:to/:timeframe?/:exchanges?',
       (req, res) => {
         const ip =
           req.headers['x-forwarded-for'] || req.connection.remoteAddress
@@ -494,20 +512,29 @@ class Server extends EventEmitter {
         let to = req.params.to
         let timeframe = req.params.timeframe
         let exchanges = req.params.exchanges
-        let pair = req.params.pair
+        let pairs = req.params.pairs
 
-        if (pair) {
-          if (!/^[A-Z]+$/.test(pair)) {
-            return res.status(400).json({
-              error: 'pair must be string full cap only',
-            })
-          } else if (this.options.pairs.indexOf(pair) === -1) {
-            return res.status(400).json({
-              error: 'unsupported pair',
-            })
+        if (pairs && pairs.length) {
+          pairs = pairs
+            .split('+')
+            .map((a) => a.trim())
+            .filter((a) => a.length)
+          
+          for (let pair of pairs) {
+            if (!/^[A-Z_\-+]+$/.test(pair)) {
+              return res.status(400).json({
+                error: 'pair must be string full cap only',
+              })
+            } else if (this.options.pairs.indexOf(pair) === -1) {
+              return res.status(400).json({
+                error: 'unsupported pair "' + pair + '"',
+              })
+            }
           }
-        } else {
-          pair = this.options.pairs[0] || 'BTCUSD'
+        }
+        
+        if (!pairs.length) {
+          pairs = ['BTCUSD', 'BTCUSDT']
         }
 
         if (!this.options.api || !this.storages) {
@@ -567,7 +594,7 @@ class Server extends EventEmitter {
               to,
               timeframe,
               exchanges,
-              pair,
+              pairs,
             })
           : Promise.resolve([])
         )
@@ -624,12 +651,12 @@ class Server extends EventEmitter {
 
       for (let identifier in this.matchs) {
         const match = this.matchs[identifier]
-        
+
         structPairs[match.exchange + ':' + match.remote] = {
           local: match.local,
           mapped: match.mapped,
           hit: match.hit,
-          ping: match.timestamp ? ago(match.timestamp) : 'never'
+          ping: match.timestamp ? ago(match.timestamp) : 'never',
         }
       }
 
@@ -768,7 +795,9 @@ class Server extends EventEmitter {
       if (client.readyState === WebSocket.OPEN) {
         for (let i = 0; i < client.pairs.length; i++) {
           if (groups[client.pairs[i]]) {
-            client.send(JSON.stringify(groups[client.pairs[i]]))
+            client.send(
+              JSON.stringify([client.pairs[i], groups[client.pairs[i]]])
+            )
           }
         }
       }
@@ -793,8 +822,9 @@ class Server extends EventEmitter {
       }
 
       if (!match.hit) {
-        console.log(`[warning] 0 hit for ${match.exchange}:${match.remote} (warning)`);
-
+        console.log(
+          `[warning] 0 hit for ${match.exchange}:${match.remote} (warning)`
+        )
       } else if (match.timestamp) {
         activity[match.source].push(now - match.timestamp)
       }
@@ -803,10 +833,18 @@ class Server extends EventEmitter {
     }
 
     for (let source in activity) {
-      const avg = activity[source].reduce((sum, a) => sum + a, 0) / activity[source].length
+      const avg =
+        activity[source].reduce((sum, a) => sum + a, 0) /
+        activity[source].length
 
       if (avg > this.options.reconnectionThreshold) {
-        console.log(`[warning] api ${source} reached reconnection threshold ${getHms(avg)} > ${getHms(this.options.reconnectionThreshold)}\n\t-> reconnect ${pairs[source].join(', ')}`);
+        console.log(
+          `[warning] api ${source} reached reconnection threshold ${getHms(
+            avg
+          )} > ${getHms(
+            this.options.reconnectionThreshold
+          )}\n\t-> reconnect ${pairs[source].join(', ')}`
+        )
 
         sources.push(source)
       }
@@ -944,6 +982,11 @@ class Server extends EventEmitter {
     for (let i = 0; i < length; i++) {
       const trade = data[i]
       const identifier = source + trade.pair
+
+      if (!this.matchs[identifier]) {
+        console.err(`UNKNOWN TRADE SOURCE`, trade)
+        continue
+      }
 
       this.matchs[identifier].hit++
       this.matchs[identifier].timestamp = now

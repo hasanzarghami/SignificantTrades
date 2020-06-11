@@ -339,10 +339,16 @@ class InfluxStorage {
     return Promise.all(promises);
   }
 
-  fetch({from, to, timeframe = 60000, exchanges = [], pair}) {
+  fetch({from, to, timeframe = 60000, exchanges = [], pairs}) {
     const timeframeText = getHms(timeframe)
     
     let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;
+
+    if (pairs.length) {
+      query += ` AND pair =~ /${pairs.join(
+        '|'
+      )}/`
+    }
 
     if (exchanges.length) {
       query += ` AND exchange =~ /${exchanges.join(

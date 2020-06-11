@@ -7,7 +7,6 @@ class Binance extends Exchange {
     this.id = 'binance'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
-    this.prices = {}
 
     this.endpoints = {
       PRODUCTS: [
@@ -120,36 +119,18 @@ class Binance extends Exchange {
     if (!json) {
       return
     } else if (api.url === 'wss://fstream.binance.com/ws') {
-      if (json.e === 'trade') {
-        const currentPrice = +json.p;
-        const previousPrice = this.prices[api.id + json.s] || 0
-
-        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
-          console.log(event);
-        }
-
-        this.prices[api.id + json.s] = currentPrice
-
+      if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
         return this.emitTrades(api.id, [
           {
             exchange: this.id + '_futures',
             pair: json.s.toLowerCase(),
             timestamp: json.T,
-            price: currentPrice,
+            price: +json.p,
             size: +json.q,
             side: json.m ? 'sell' : 'buy',
           },
         ])
       } else if (json.e === 'forceOrder') {
-        const currentPrice = +json.p;
-        const previousPrice = this.prices[api.id + json.o.T] || 0
-
-        if (previousPrice && ((currentPrice - previousPrice) / previousPrice) * 100 > 1) {
-          console.log(event);
-        }
-
-        this.prices[api.id + json.o.T] = currentPrice
-
         return this.emitLiquidations(api.id, [
           {
             exchange: this.id + '_futures',
