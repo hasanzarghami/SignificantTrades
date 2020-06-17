@@ -14,29 +14,6 @@
       @dblclick.stop.prevent="resetHeight"
     ></div>
 
-    <!--<grid-layout v-if="seriesLayout"
-      class="chart__layout"
-      :layout.sync="seriesLayout"
-      :col-num="1"
-      :row-height="16"
-      :margin="[0, 0]"
-      :auto-size="true"
-      :vertical-compact="true"
-      :is-draggable="true"
-      :is-resizable="true"
-    >
-      <grid-item v-for="item in seriesLayout"
-        :x="item.x"
-        :y="item.y"
-        :w="item.w"
-        :h="item.h"
-        :i="item.i"
-        :style="{height: 'auto'}"
-        :key="item.i">
-          {{item.i}}
-      </grid-item>
-    </grid-layout>-->
-
     <div class="chart__series">
       <SerieControl v-for="(serie, index) in activeSeries" :key="index" :id="serie" :legend="legend[serie]" />
 
@@ -57,11 +34,12 @@
 <script>
 import '../../data/typedef'
 import { mapState } from 'vuex'
-// import VueGridLayout from 'vue-grid-layout';
 import ChartController from './chartController'
 import { cacheRange, saveChunk } from './chartCache'
 import seriesData from '../../data/series'
-import socket from '../../services/socket'
+
+import historical from '../../services/historical'
+import aggregator from '../../services/aggregator'
 
 import { formatPrice, formatAmount, formatTime, getHms } from '../../utils/helpers'
 
@@ -75,8 +53,6 @@ let chart = null
 export default {
   components: {
     SerieControl
-    /* GridLayout: VueGridLayout.GridLayout,
-    GridItem: VueGridLayout.GridItem */
   },
 
   data() {
@@ -110,7 +86,7 @@ export default {
   created() {
     chart = new ChartController()
 
-    socket.$on('trades', this.onTrades)
+    aggregator.on('trades', this.onTrades)
 
     this.onStoreMutation = this.$store.subscribe(mutation => {
       switch (mutation.type) {
@@ -121,7 +97,7 @@ export default {
         case 'app/EXCHANGE_UPDATED':
           chart.renderVisibleChunks()
           break
-        case 'settings/SET_PAIR':
+        case 'settings/SET_PAIRS':
           chart.clear()
           break
         case 'settings/SET_TIMEFRAME':
@@ -183,7 +159,7 @@ export default {
 
     clearTimeout(this._keepAliveTimeout)
 
-    socket.$off('trades', this.onTrades)
+    aggregator.off('trades', this.onTrades)
   },
 
   methods: {
@@ -208,7 +184,7 @@ export default {
      * @param {boolean} clear will clear the chart / initial fetch
      */
     fetch() {
-      if (!socket.canFetch()) {
+      if (!historical.canFetch()) {
         return Promise.reject('Fetch is disabled')
       }
 
@@ -244,8 +220,8 @@ export default {
 
       chart.lockRender()
 
-      return socket
-        .fetchHistoricalData(parseInt(rangeToFetch.from * 1000), parseInt(rangeToFetch.to * 1000 - 1))
+      return historical
+        .fetch(parseInt(rangeToFetch.from * 1000), parseInt(rangeToFetch.to * 1000 - 1))
         .then(({ data, from, to, format }) => {
           let chunk
 
@@ -551,13 +527,13 @@ export default {
     bindChartEvents() {
       // chart.chartInstance.subscribeClick(this.onClick)
       chart.chartInstance.subscribeCrosshairMove(this.onCrosshair)
-      chart.chartInstance.subscribeVisibleTimeRangeChange(this.onPan)
+      chart.chartInstance.timeScale().subscribeVisibleTimeRangeChange(this.onPan)
     },
 
     unbindChartEvents() {
       // chart.chartInstance.unsubscribeClick(this.onClick)
       chart.chartInstance.unsubscribeCrosshairMove(this.onCrosshair)
-      chart.chartInstance.unsubscribeVisibleTimeRangeChange(this.onPan)
+      chart.chartInstance.timeScale().unsubscribeVisibleTimeRangeChange(this.onPan)
     },
 
     bindBrowserResize() {

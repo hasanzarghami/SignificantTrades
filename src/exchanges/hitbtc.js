@@ -1,101 +1,86 @@
 import Exchange from '../services/exchange'
 
-class Hitbtc extends Exchange {
+class Huobi extends Exchange {
   constructor(options) {
     super(options)
 
     this.id = 'hitbtc'
 
     this.endpoints = {
-      PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol',
-      TRADES: () => `https://api.hitbtc.com/api/2/public/trades/${this.pair}?sort=DESC&limit=500`
+      PRODUCTS: 'https://api.hitbtc.com/api/2/public/symbol'
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://api.hitbtc.com/api/2/ws'
+        url: 'wss://api.hitbtc.com/api/2/ws/'
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            method: 'subscribeTrades',
-            params: {
-              symbol: this.pair
-            }
-          })
-        )
-
-        resolve()
-
-        this.emitOpen(e)
-      }
-
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
+  formatProducts(data) {
+    return data.map(a => a.id)
   }
 
-  disconnect() {
-    if (!super.disconnect()) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
       return
     }
 
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
+    api.send(
+      JSON.stringify({
+        method: 'subscribeTrades',
+        params: {
+          symbol: this.match[pair]
+        }
+      })
+    )
   }
 
-  formatLiveTrades(json) {
-    if (!json) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
       return
     }
 
-    if (json.method === 'updateTrades' && json.params && json.params.data && json.params.data.length) {
-      return json.params.data.map(trade => ({
+    api.send(
+      JSON.stringify({
+        method: 'unsubscribeTrades',
+        params: {
+          symbol: this.match[pair]
+        }
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json || json.method !== 'updateTrades' || !json.params || !json.params.data || !json.params.data.length) {
+      return
+    }
+
+    return this.emitTrades(
+      api.id,
+      json.params.data.map(trade => ({
         exchange: this.id,
+        pair: json.params.symbol,
         timestamp: +new Date(trade.timestamp),
         price: +trade.price,
         size: +trade.quantity,
         side: trade.side
       }))
-    }
-  }
-
-  /* formatRecentsTrades(response) {
-    if (response && response.length) {
-      return response.map(trade => [
-        this.id,
-        +new Date(trade.timestamp),
-        +trade.price,
-        +trade.quantity,
-        trade.side === 'buy' ? 1 : 0
-      ]);
-    }
-  } */
-
-  formatProducts(data) {
-    return data.map(a => a.id)
+    )
   }
 }
 
-export default Hitbtc
+export default Huobi

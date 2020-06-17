@@ -5,101 +5,134 @@ class Bitfinex extends Exchange {
     super(options)
 
     this.id = 'bitfinex'
+    this.hasFutures = true
+    this.channels = {}
+    this.prices = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.bitfinex.com/v1/symbols',
-      TRADES: () => `https://api.bitfinex.com/v2/trades/t${this.pair}/hist?limit=1000`
-    }
-
-    this.matchPairName = pair => {
-      if (this.products.indexOf(pair) !== -1) {
-        return pair
-      }
-
-      return false
+      PRODUCTS: 'https://api.bitfinex.com/v1/symbols'
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://api.bitfinex.com/ws/2'
+        url: 'wss://api-pub.bitfinex.com/ws/2/'
       },
       this.options
     )
-
-    this.initialize()
   }
-
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            event: 'subscribe',
-            channel: 'trades',
-            symbol: 't' + this.pair
-          })
-        )
-
-        this.emitOpen(e)
-
-        resolve()
-      }
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
-  }
-
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  formatLiveTrades(json) {
-    if (!json || json[1] !== 'te') {
-      return
-    }
-
-    return [
-      {
-        exchange: this.id,
-        timestamp: +new Date(json[2][1]),
-        price: +json[2][3],
-        size: Math.abs(json[2][2]),
-        side: json[2][2] < 0 ? 'sell' : 'buy'
-      }
-    ]
-  }
-
-  /* formatRecentsTrades(response) {
-        if (!response || !response.length) {
-            return;
-        }
-
-        return response.map(trade => [
-            this.id,
-            trade[1],
-            trade[3],
-            Math.abs(trade[2]),
-            trade[2] > 0 ? 1 : 0,
-        ]);
-    } */
 
   formatProducts(data) {
     return data.map(a => a.toUpperCase())
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        event: 'subscribe',
+        channel: 'trades',
+        symbol: 't' + this.match[pair]
+      })
+    )
+  }
+
+  /**
+   * Unsub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === this.match[pair])
+
+    for (let id of channelsToUnsubscribe) {
+      api.send(
+        JSON.stringify({
+          event: 'unsubscribe',
+          chanId: id
+        })
+      )
+    }
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (json.event) {
+      if (json.chanId && json.pair) {
+        console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
+        if (this.pairs.indexOf(json.pair) === -1) {
+          debugger
+        }
+        this.channels[json.chanId] = {
+          name: json.channel,
+          pair: json.pair
+        }
+      }
+      return
+    }
+
+    if (!this.channels[json[0]] || json[1] === 'hb') {
+      if (json[1] !== 'hb') {
+        console.warn(`[${this.id}] received unknown event ${event.data}`)
+      }
+      return
+    }
+
+    const channel = this.channels[json[0]]
+
+    if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
+      console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
+      channel.hasReceivedInitialData = true
+      return
+    }
+
+    if (channel.name === 'trades' && json[1] === 'te') {
+      this.prices[api.id + channel.pair] = +json[2][3]
+
+      return this.emitTrades(api.id, [
+        {
+          exchange: this.id,
+          pair: channel.pair,
+          timestamp: +new Date(json[2][1]),
+          price: +json[2][3],
+          size: Math.abs(json[2][2]),
+          side: json[2][2] < 0 ? 'sell' : 'buy'
+        }
+      ])
+    } else if (channel.name === 'status' && json[1]) {
+      console.debug(`[${this.id}] status ${JSON.stringify(json[1])}`)
+
+      return this.emitLiquidations(
+        api.id,
+        json[1]
+          .filter(a => this.pairs.indexOf(a[4].substring(1)) !== -1)
+          .map(a => {
+            const pair = a[4].substring(1)
+
+            return {
+              exchange: this.id + '_futures',
+              pair: a[4].substring(1),
+              timestamp: parseInt(a[2]),
+              price: this.prices[api.id + pair],
+              size: Math.abs(a[5]),
+              side: a[5] > 1 ? 'buy' : 'sell',
+              liquidation: true
+            }
+          })
+      )
+    }
   }
 }
 

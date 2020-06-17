@@ -7,75 +7,92 @@ class Gdax extends Exchange {
     this.id = 'gdax'
 
     this.endpoints = {
-      PRODUCTS: 'https://api.pro.coinbase.com/products',
-      TRADES: () => `https://api.pro.coinbase.com/products/${this.pair}/trades`
-    }
-
-    this.matchPairName = pair => {
-      pair = pair.substr(0, 3) + '-' + pair.substr(3, pair.length)
-
-      if (this.products.indexOf(pair) !== -1) {
-        return pair
-      }
-
-      return false
+      PRODUCTS: 'https://api.pro.coinbase.com/products'
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://ws-feed.pro.coinbase.com'
+        url: 'wss://ws-feed.pro.coinbase.com/'
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
+  getMatch(pair) {
+    if (!this.products) {
+      return false
+    }
 
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
 
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            type: 'subscribe',
-            channels: [{ name: 'matches', product_ids: [this.pair] }]
-          })
-        )
-
-        this.emitOpen(e)
-
-        resolve()
+    // allow match to remote pair syntax also
+    for (let localPair in this.products) {
+      if (this.products[localPair] === pair) {
+        return this.products[localPair]
       }
+    }
 
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
+    return false
   }
 
-  disconnect() {
-    if (!super.disconnect()) return
+  formatProducts(data) {
+    const products = {}
 
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
+    for (let symbol of data) {
+      products[symbol.id.replace('-', '')] = symbol.id
+    }
+
+    return {
+      products
     }
   }
 
-  formatLiveTrades(json) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        type: 'subscribe',
+        channels: [{ name: 'matches', product_ids: [this.match[pair]] }]
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        type: 'unsubscribe',
+        channels: [{ name: 'matches', product_ids: [this.match[pair]] }]
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
     if (json && json.size > 0) {
-      this.queueTrades([
+      return this.emitTrades(api.id, [
         {
           exchange: this.id,
+          pair: json.product_id,
           timestamp: +new Date(json.time),
           price: +json.price,
           size: +json.size,
@@ -84,22 +101,6 @@ class Gdax extends Exchange {
       ])
     }
   }
-
-  formatProducts(data) {
-    return data.map(a => a.id)
-  }
-
-  /* formatRecentsTrades(response) {
-        if (response && response.length) {
-            return response.map(trade => [
-                this.id,
-                +new Date(trade.time),
-                +trade.price,
-                +trade.size,
-                trade.side === 'buy' ? 0 : 1,
-            ])
-        }
-    } */
 }
 
 export default Gdax

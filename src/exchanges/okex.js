@@ -1,4 +1,5 @@
 import Exchange from '../services/exchange'
+
 import pako from 'pako'
 
 class Okex extends Exchange {
@@ -6,123 +7,137 @@ class Okex extends Exchange {
     super(options)
 
     this.id = 'okex'
-    this.types = []
-
-    this.tradeStack = []
-    this.dispatchTradesTimeout = null
+    this.hasFutures = true
 
     this.endpoints = {
       PRODUCTS: [
         'https://www.okex.com/api/spot/v3/instruments',
-        'https://www.okex.com/api/swap/v3/instruments',
-        'https://www.okex.com/api/futures/v3/instruments'
-      ],
-      TRADES: () => `https://www.okex.com/api/v1/trades.do?symbol=${this.pair}`
-    }
-
-    // 2019-11-06
-    // retro compatibility for client without contract specification stored
-    // -> force refresh of stored instruments / specs
-    if (this.products && typeof this.specs === 'undefined') {
-      delete this.products
-    }
-
-    this.matchPairName = pair => {
-      let id = this.products[pair] || this.products[pair.replace(/USDT/i, 'USD')]
-
-      if (!id) {
-        for (let name in this.products) {
-          if (pair === this.products[name]) {
-            id = this.products[name]
-            break
-          }
-        }
-      }
-
-      if (id) {
-        if (/\d+$/.test(id)) {
-          this.types[id] = 'futures'
-        } else if (/-SWAP$/.test(id)) {
-          this.types[id] = 'swap'
-        } else {
-          this.types[id] = 'spot'
-        }
-      }
-
-      return id || false
+        'https://www.okex.com/api/futures/v3/instruments',
+        'https://www.okex.com/api/swap/v3/instruments'
+      ]
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://real.okex.com:8443/ws/v3'
+        url: 'wss://real.okex.com:8443/ws/v3/'
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
+  getMatch(pair) {
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
 
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.binaryType = 'arraybuffer'
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(event.data))
-
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            op: 'subscribe',
-            args: this.pairs.map(pair => `${this.types[pair]}/trade:${pair}`)
-          })
-        )
-
-        this.keepalive = setInterval(() => {
-          this.api.send('ping')
-        }, 30000)
-
-        this.emitOpen(e)
-
-        resolve()
+    for (let id in this.products) {
+      if (this.products[id].toLowerCase() === pair.toLowerCase()) {
+        return this.products[id]
       }
+    }
 
-      this.api.onclose = event => {
-        this.emitClose(event)
+    return false
+  }
 
-        clearInterval(this.keepalive)
-      }
+  formatProducts(response) {
+    const products = {}
+    const specs = {}
+    const types = {}
+    const inversed = {}
 
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
+    response.forEach(data => {
+      for (let product of data) {
+        let pair
 
-        reject()
+        if (product.alias) {
+          // futures
+
+          pair = product.base_currency + product.quote_currency + '-' + product.alias.toUpperCase()
+
+          products[pair] = product.instrument_id
+          specs[product.instrument_id] = +product.contract_val
+          types[product.instrument_id] = 'futures'
+
+          if (product.is_inverse) {
+            inversed[product.instrument_id] = true
+          }
+        } else if (/-SWAP/.test(product.instrument_id)) {
+          // swap
+
+          pair = product.base_currency + product.quote_currency + '-' + 'PERPETUAL'
+
+          products[pair] = product.instrument_id
+          specs[product.instrument_id] = +product.contract_val
+          types[product.instrument_id] = 'swap'
+
+          if (product.is_inverse) {
+            inversed[product.instrument_id] = true
+          }
+        } else {
+          pair = product.base_currency + product.quote_currency
+
+          products[pair] = product.instrument_id
+          types[product.instrument_id] = 'spot'
+        }
       }
     })
-  }
 
-  disconnect() {
-    if (!super.disconnect()) return
-
-    clearInterval(this.keepalive)
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
+    return {
+      products,
+      specs,
+      types,
+      inversed
     }
   }
 
-  formatLiveTrades(event) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    const type = this.types[this.match[pair]]
+
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: [`${type}/trade:${this.match[pair]}`]
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const type = this.types[this.match[pair]]
+
+    api.send(
+      JSON.stringify({
+        op: 'unsubscribe',
+        args: [`${type}/trade:${this.match[pair]}`]
+      })
+    )
+  }
+
+  onMessage(event, api) {
     let json
 
     try {
       if (event instanceof String) {
         json = JSON.parse(event)
       } else {
-        json = JSON.parse(pako.inflateRaw(event, { to: 'string' }))
+        json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
       }
     } catch (error) {
       return
@@ -132,75 +147,37 @@ class Okex extends Exchange {
       return
     }
 
-    return json.data.map(trade => {
-      let size
+    return this.emitTrades(
+      api.id,
+      json.data.map(trade => {
+        let size
+        let name = this.id
 
-      if (typeof this.specs[trade.instrument_id] !== 'undefined') {
-        size = ((trade.size || trade.qty) * this.specs[trade.instrument_id]) / trade.price
-      } else {
-        size = trade.size
-      }
+        if (typeof this.specs[trade.instrument_id] !== 'undefined') {
+          size = ((trade.size || trade.qty) * this.specs[trade.instrument_id]) / (this.inversed[trade.instrument_id] ? trade.price : 1)
+          name += '_futures'
+        } else {
+          size = trade.size
+        }
 
-      return {
-        exchange: this.id,
-        timestamp: +new Date(trade.timestamp),
-        price: +trade.price,
-        size: +size,
-        side: trade.side
-      }
-    })
-  }
-
-  /* formatRecentsTrades(response) {
-    if (response && response.length) {
-      return response.map(trade => [
-        this.id,
-        trade.date_ms,
-        trade.price,
-        trade.amount,
-        trade.type === 'buy' ? 1 : 0,
-      ]);
-    }
-  } */
-
-  formatProducts(response) {
-    const products = {}
-    const specs = {}
-
-    const types = ['spot', 'swap', 'futures']
-
-    response.forEach((data, index) => {
-      data.forEach(product => {
-        const pair = (
-          (product.base_currency ? product.base_currency : product.underlying_index) +
-          (types[index] === 'spot' ? product.quote_currency.replace(/usdt$/i, 'USD') : product.quote_currency)
-        ).toUpperCase() // base+quote ex: BTCUSD
-
-        switch (types[index]) {
-          case 'spot':
-            products[pair] = product.instrument_id
-            break
-          case 'swap':
-            products[pair + '-SWAP'] = product.instrument_id
-            specs[product.instrument_id] = +product.contract_val
-            break
-          case 'futures':
-            products[pair + '-' + product.alias.toUpperCase()] = product.instrument_id
-            specs[product.instrument_id] = +product.contract_val
-            break
+        return {
+          exchange: name,
+          pair: trade.instrument_id,
+          timestamp: +new Date(trade.timestamp),
+          price: +trade.price,
+          size: +size,
+          side: trade.side
         }
       })
-    })
-
-    return {
-      products,
-      specs
-    }
+    )
   }
 
-  pad(num, size) {
-    var s = '000000000' + num
-    return s.substr(s.length - size)
+  onApiBinded(api) {
+    this.startKeepAlive(api)
+  }
+
+  onApiUnbinded(api) {
+    this.stopKeepAlive(api)
   }
 }
 

@@ -16,7 +16,7 @@
 
 <script>
 import { mapState } from 'vuex'
-import socket from '../services/socket'
+import aggregator from '../services/aggregator'
 
 export default {
   data() {
@@ -32,7 +32,7 @@ export default {
   },
   created() {
     this.list = this.actives.slice(0, this.actives.length)
-    this.status = socket.exchanges.reduce((obj, exchange) => {
+    this.status = aggregator.exchanges.reduce((obj, exchange) => {
       obj[exchange.id] = {
         status: 'pending',
         price: null
@@ -60,24 +60,24 @@ export default {
     updateExchangesPrices() {
       this._updateExchangesPricesTimeout = setTimeout(this.updateExchangesPrices.bind(this), 1000 + Math.random() * 2000)
       const now = +new Date()
-      for (let i = 0; i < socket.exchanges.length; i++) {
-        const id = socket.exchanges[i].id
-        if (this.actives.indexOf(socket.exchanges[i].id) === -1 || this.status[id].price === socket.exchanges[i].price) {
+      for (let i = 0; i < aggregator.exchanges.length; i++) {
+        const id = aggregator.exchanges[i].id
+        if (this.actives.indexOf(aggregator.exchanges[i].id) === -1 || this.status[id].price === aggregator.exchanges[i].price) {
           continue
         }
-        if (!socket.exchanges[i].price) {
+        if (!aggregator.exchanges[i].price) {
           this.status[id].status = 'pending'
-        } else if (now - socket.exchanges[i].timestamp > 10000) {
+        } else if (now - aggregator.exchanges[i].timestamp > 10000) {
           this.status[id].status = 'idle'
-        } else if (this.status[id].price > socket.exchanges[i].price) {
+        } else if (this.status[id].price > aggregator.exchanges[i].price) {
           this.status[id].status = 'down'
-        } else if (this.status[id].price < socket.exchanges[i].price) {
+        } else if (this.status[id].price < aggregator.exchanges[i].price) {
           this.status[id].status = 'up'
         } else {
           this.status[id].status = 'neutral'
         }
-        if (this.status[id].price !== socket.exchanges[i].price) {
-          this.status[id].price = socket.exchanges[i].price
+        if (this.status[id].price !== aggregator.exchanges[i].price) {
+          this.status[id].price = aggregator.exchanges[i].price
         }
       }
       if (this.hovering) {

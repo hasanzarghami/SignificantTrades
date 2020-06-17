@@ -5,82 +5,30 @@ class Poloniex extends Exchange {
     super(options)
 
     this.id = 'poloniex'
+    this.channels = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://www.poloniex.com/public?command=returnTicker',
-      TRADES: () => () =>
-        `https://poloniex.com/public?command=returnTradeHistory&currencyPair=${this.pair}&start=${+new Date() / 1000 - 60 * 15}&end=${+new Date() /
-          1000}`
+      PRODUCTS: 'https://www.poloniex.com/public?command=returnTicker'
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://api2.poloniex.com'
+        url: 'wss://api2.poloniex.com/'
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            command: 'subscribe',
-            channel: this.pair
-          })
-        )
-
-        this.emitOpen(e)
-
-        resolve()
-      }
-
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
-  }
-
-  disconnect() {
-    if (!super.disconnect()) {
-      return
+  getMatch(pair) {
+    if (!this.products) {
+      return false
     }
 
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  formatLiveTrades(json) {
-    if (!json || json.length !== 3) {
-      return
+    if (this.products[pair]) {
+      return this.products[pair]
     }
 
-    if (json[2] && json[2].length) {
-      return json[2]
-        .filter(result => result[0] === 't')
-        .map(trade => ({
-          exchange: this.id,
-          timestamp: +new Date(trade[5] * 1000),
-          price: +trade[3],
-          size: +trade[4],
-          side: trade[2] ? 'buy' : 'sell'
-        }))
-    }
+    return false
   }
 
   formatProducts(data) {
@@ -92,24 +40,75 @@ class Poloniex extends Exchange {
           .split('_')
           .reverse()
           .join('')
-          .replace(/USDT$/, 'USD')
       ] = a
     })
 
     return output
   }
 
-  /* formatRecentsTrades(response) {
-    if (response && response.length) {
-      return response.map(trade => [
-        this.id,
-        +new Date(trade.date.split(' ').join('T') + 'Z'),
-        +trade.rate,
-        +trade.amount,
-        trade.type === 'buy' ? 1 : 0,
-      ]);
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
     }
-  } */
+
+    api.send(
+      JSON.stringify({
+        command: 'subscribe',
+        channel: this.match[pair]
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        command: 'unsubscribe',
+        channel: this.match[pair]
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json || json.length !== 3) {
+      return
+    }
+
+    if (json[2] && json[2].length) {
+      if (json[2][0][0] === 'i') {
+        this.channels[json[0]] = json[2][0][1].currencyPair
+      } else {
+        return this.emitTrades(
+          api.id,
+          json[2]
+            .filter(result => result[0] === 't')
+            .map(trade => ({
+              exchange: this.id,
+              pair: this.channels[json[0]],
+              timestamp: +new Date(trade[5] * 1000),
+              price: +trade[3],
+              size: +trade[4],
+              side: trade[2] ? 'buy' : 'sell'
+            }))
+        )
+      }
+    }
+  }
 }
 
 export default Poloniex

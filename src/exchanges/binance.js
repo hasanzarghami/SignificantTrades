@@ -5,93 +5,154 @@ class Binance extends Exchange {
     super(options)
 
     this.id = 'binance'
+    this.hasFutures = true
+    this.lastSubscriptionId = 0
+    this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.binance.com/api/v1/ticker/allPrices',
-      TRADES: () => `https://api.binance.com/api/v1/trades?symbol=${this.pair.toUpperCase()}`
-    }
-
-    this.matchPairName = pair => {
-      pair = pair.replace(/USD$/, 'USDT')
-
-      if (this.products.indexOf(pair) !== -1) {
-        return pair.toLowerCase()
-      }
-
-      return false
+      PRODUCTS: ['https://api.binance.com/api/v1/ticker/allPrices', 'https://fapi.binance.com/fapi/v1/exchangeInfo']
     }
 
     this.options = Object.assign(
       {
-        url: () => {
-          return 'wss://stream.binance.com:9443/ws/' + this.pair + '@aggTrade'
+        url: pair => {
+          if (/-PERPETUAL/.test(pair)) {
+            return 'wss://fstream.binance.com/ws/'
+          } else {
+            return `wss://stream.binance.com:9443/ws/`
+          }
         }
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-      this.api.onopen = e => {
-        this.emitOpen(e)
-
-        resolve()
-      }
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
-  }
-
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  formatLiveTrades(trade) {
-    if (trade) {
-      return [
-        {
-          exchange: this.id,
-          timestamp: trade.E,
-          price: +trade.p,
-          size: +trade.q,
-          side: trade.m ? 'sell' : 'buy'
-        }
-      ]
+  getMatch(pair) {
+    if (this.products[pair]) {
+      return this.products[pair]
     }
 
     return false
   }
 
-  /* formatRecentsTrades(data) {
-    return data.map(trade => [
-      this.id,
-      trade.time,
-      trade.price,
-      trade.qty,
-      !trade.isBuyerMaker ? 1 : 0
-    ])
-  } */
+  formatProducts(response) {
+    const products = {}
 
-  formatProducts(data) {
-    return data.map(a => a.symbol)
+    response.forEach(data => {
+      if (data.symbols) {
+        // futures (swap) response
+        for (let product of data.symbols) {
+          products[product.symbol + '-PERPETUAL'] = product.symbol.toLowerCase()
+        }
+      } else {
+        // spot response
+        for (let product of data) {
+          products[product.symbol] = product.symbol.toLowerCase()
+        }
+      }
+    })
+
+    return {
+      products
+    }
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    this.subscriptions[pair] = ++this.lastSubscriptionId
+
+    const params = [this.match[pair] + '@trade']
+
+    if (/-PERPETUAL/.test(pair)) {
+      params.push(this.match[pair] + '@forceOrder')
+    }
+
+    api.send(
+      JSON.stringify({
+        method: 'SUBSCRIBE',
+        params,
+        id: this.subscriptions[pair]
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const params = [this.match[pair] + '@trade']
+
+    if (/-PERPETUAL/.test(pair)) {
+      params.push(this.match[pair] + '@forceOrder')
+    }
+
+    api.send(
+      JSON.stringify({
+        method: 'UNSUBSCRIBE',
+        params,
+        id: this.subscriptions[pair]
+      })
+    )
+
+    delete this.subscriptions[pair]
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json) {
+      return
+    } else if (api.url === 'wss://fstream.binance.com/ws') {
+      if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
+        return this.emitTrades(api.id, [
+          {
+            exchange: this.id + '_futures',
+            pair: json.s.toLowerCase(),
+            timestamp: json.T,
+            price: +json.p,
+            size: +json.q,
+            side: json.m ? 'sell' : 'buy'
+          }
+        ])
+      } else if (json.e === 'forceOrder') {
+        return this.emitLiquidations(api.id, [
+          {
+            exchange: this.id + '_futures',
+            pair: json.o.s.toLowerCase(),
+            timestamp: json.o.T,
+            price: +json.o.p,
+            size: +json.o.q,
+            side: json.o.S === 'BUY' ? 'buy' : 'sell',
+            liquidation: true
+          }
+        ])
+      }
+    } else if (json.E) {
+      return this.emitTrades(api.id, [
+        {
+          exchange: this.id,
+          pair: json.s.toLowerCase(),
+          timestamp: json.E,
+          price: +json.p,
+          size: +json.q,
+          side: json.m ? 'sell' : 'buy'
+        }
+      ])
+    }
   }
 }
 

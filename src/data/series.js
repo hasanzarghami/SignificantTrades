@@ -26,7 +26,7 @@ export default {
     input: `ema(bar.vsell, options.ema_length)`,
     options: {
       ema_length: 14,
-      scaleGroup: 'volume_ema',
+      priceScaleId: 'volume_ema',
       color: '#c14047',
       lineWidth: 2,
       overlay: true,
@@ -41,7 +41,7 @@ export default {
     input: `ema(bar.vbuy, options.ema_length)`,
     options: {
       ema_length: 14,
-      scaleGroup: 'volume_ema',
+      priceScaleId: 'volume_ema',
       color: '#c9b087',
       lineWidth: 2,
       overlay: true,
@@ -60,7 +60,7 @@ export default {
     options: {
       upColor: '#c3a87a',
       downColor: '#e53935',
-      scaleGroup: 'volume'
+      priceScaleId: 'volume'
     }
   },
   volume: {
@@ -68,14 +68,14 @@ export default {
     input: `bar.vbuy + bar.vsell`,
     options: {
       color: 'rgba(255, 255, 255, .15)',
-      scaleGroup: 'volume'
+      priceScaleId: 'volume'
     }
   },
   liquidations: {
     type: 'histogram',
     input: `bar.lbuy + bar.lsell`,
     options: {
-      scaleGroup: 'volume',
+      priceScaleId: 'volume',
       color: '#9c27b0'
     }
   },

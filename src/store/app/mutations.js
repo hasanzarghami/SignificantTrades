@@ -1,6 +1,13 @@
 import Vue from 'vue'
 
 export default {
+  SET_AVAILABLE_EXCHANGES(state, exchanges) {
+    state.exchanges = exchanges
+
+    for (let exchange in exchanges) {
+      //todo
+    }
+  },
   SET_EXCHANGE_MATCH(state, payload) {
     Vue.set(state.exchanges[payload.exchange], 'match', payload.match)
   },

@@ -11,8 +11,8 @@ import { mapState } from 'vuex'
 import { ago, formatPrice, formatAmount } from '../utils/helpers'
 import { getColorByWeight, getColorLuminance, getAppBackgroundColor, splitRgba, getLogShade } from '../utils/colors'
 
-import socket from '../services/socket'
 import Sfx from '../services/sfx'
+import aggregator from '../services/aggregator'
 
 let LAST_TRADE_TIMESTAMP // to control whether we show timestamp on trade or not
 let LAST_SIDE // to control wheter we show "up" or "down" icon in front of trade
@@ -52,14 +52,14 @@ export default {
     this.retrieveStoredGifs()
     this.prepareColorsSteps()
 
-    socket.$on('trades.aggr', this.onTrades)
+    aggregator.on('trades.aggr', this.onTrades)
 
     this.onStoreMutation = this.$store.subscribe((mutation, state) => {
       switch (mutation.type) {
         case 'app/EXCHANGE_UPDATED':
           activeExchanges = state.app.actives.slice(0, state.app.actives.length)
           break
-        case 'settings/SET_PAIR':
+        case 'settings/SET_PAIRS':
           this.clearList()
           break
         case 'settings/TOGGLE_AUDIO':
@@ -130,7 +130,7 @@ export default {
     }, 1000)
   },
   beforeDestroy() {
-    socket.$off('trades.aggr', this.onTrades)
+    aggregator.off('trades.aggr', this.onTrades)
 
     this.onStoreMutation()
 

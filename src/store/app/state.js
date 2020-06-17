@@ -1,5 +1,6 @@
 export default {
   pairs: [],
+  exchanges: {},
   showSearch: false,
   actives: [],
   activeSeries: [],

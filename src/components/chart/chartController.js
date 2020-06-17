@@ -523,7 +523,7 @@ export default class ChartController {
   }
 
   getUTCVisibleRange() {
-    const visibleRange = this.chartInstance.timeScale().getVisibleRange()
+    const visibleRange = this.chartInstance.timeScale().getVisibleLogicalRange()
     const offset = store.state.settings.timezoneOffset / 1000
 
     return visibleRange

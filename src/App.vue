@@ -24,7 +24,7 @@
         <Autocomplete
           :load="search"
           :selected="pairs"
-          @submit="$store.commit('settings/SET_PAIR', $event.join('+')), $store.commit('app/TOGGLE_SEARCH', false)"
+          @submit="$store.commit('settings/SET_PAIRS', $event), $store.commit('app/TOGGLE_SEARCH', false)"
           v-slot="{ item }"
         >
           <span
@@ -51,10 +51,10 @@
 </template>
 
 <script>
+'use strict'
+
 import { mapState } from 'vuex'
 import { formatPrice, formatAmount, movingAverage, countDecimals } from './utils/helpers'
-
-import socket from './services/socket'
 
 import Notice from './components/ui/Notice.vue'
 import Header from './components/ui/Header.vue'
@@ -67,11 +67,13 @@ import Stats from './components/Stats.vue'
 import Exchanges from './components/Exchanges.vue'
 import upFavicon from '../src/assets/up.png'
 import downFavicon from '../src/assets/down.png'
+import aggregator from './services/aggregator'
 
 const faviconDirection = {
   direction: null,
   index: 0,
-  avg: 0
+  slow: 0,
+  fast: 0
 }
 
 let searchLetter
@@ -111,9 +113,9 @@ export default {
 
     this.onStoreMutation = this.$store.subscribe(mutation => {
       switch (mutation.type) {
-        case 'settings/SET_PAIR':
-          this.updatePairCurrency(mutation.payload)
-          socket.connectExchanges(mutation.payload)
+        case 'settings/SET_PAIRS':
+          /* this.updatePairCurrency(mutation.payload)
+          socket.connectExchanges(mutation.payload) */
           this.calculateOptimalPrice = true
           break
         case 'app/TOGGLE_SEARCH':
@@ -135,23 +137,8 @@ export default {
       }
     })
 
-    // Is request blocked by browser ?
-    // If true notice user that some of the exchanges may be unavailable
-    /*fetch('showads.js')
-      .then(() => {})
-      .catch((response, a) => {
-        socket.$emit('alert', {
-          type: 'error',
-          title: `Disable your AdBlocker`,
-          message: `Some adblockers may block access to exchanges api.\nMake sure to turn it off, you wont find any ads here ever :-)`,
-          id: `adblock_error`
-        })
-      })*/
-
-    socket.initialize()
-
-    this.updatePrice()
-    this.updatePairCurrency(this.pair)
+    // this.updatePrice()
+    // this.updatePairCurrency(this.pair)
   },
   mounted() {
     this.bindSearchOpenByKey()
@@ -246,7 +233,7 @@ export default {
         decimals = []
       }
 
-      for (let exchange of socket.exchanges) {
+      for (let exchange of aggregator.exchanges) {
         if (exchange.price === null) {
           continue
         }
@@ -282,17 +269,19 @@ export default {
 
       window.document.title = this.pair + ' ' + this.price.toString().replace(/<\/?[^>]+(>|$)/g, '')
 
-      this._updatePriceTimeout = setTimeout(this.updatePrice, 1000)
+      // this._updatePriceTimeout = setTimeout(this.updatePrice, 1000)
     },
     updateFavicon(price) {
       if (faviconDirection.index) {
-        faviconDirection.avg = movingAverage(faviconDirection.avg, price, 1 / (faviconDirection.index + 1))
+        faviconDirection.slow = movingAverage(faviconDirection.slow, price, 1 / (faviconDirection.index + 1))
+        faviconDirection.fast = movingAverage(faviconDirection.fast, price, (1 / (faviconDirection.index + 1)) * 2)
+        console.log('sloe:', faviconDirection.slow, 'fast: ', faviconDirection.fast)
       } else {
-        faviconDirection.avg = price
+        faviconDirection.fast = faviconDirection.slow = +price
       }
       faviconDirection.index++
 
-      const direction = price > faviconDirection.avg ? 'up' : 'down'
+      const direction = faviconDirection.fast > faviconDirection.slow ? 'up' : 'down'
 
       if (direction !== faviconDirection.direction) {
         if (!faviconDirection.element) {

@@ -12,10 +12,11 @@ module.exports = {
     hot: true,
     inline: true,
     // https: true,
-    // port: 8081,
+    port: 8082,
     historyApiFallback: true,
     proxy: [
       'https://api.kraken.com',
+      'https://futures.kraken.com',
       'https://api.binance.com',
       'https://api.bitfinex.com',
       'https://api.gdax.com',

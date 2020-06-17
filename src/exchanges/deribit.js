@@ -13,91 +13,31 @@ class Deribit extends Exchange {
     this.options = Object.assign(
       {
         url: () => {
-          return `wss://www.deribit.com/ws/api/v2`
+          return `wss://www.deribit.com/ws/api/v2/`
         }
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = e => {
-        this.skip = true
-
-        this.api.send(
-          JSON.stringify({
-            method: 'public/subscribe',
-            params: {
-              channels: ['trades.' + this.pair + '.raw']
-            }
-          })
-        )
-
-        this.keepalive = setInterval(() => {
-          this.api.send(
-            JSON.stringify({
-              method: 'public/ping'
-            })
-          )
-        }, 60000)
-
-        this.emitOpen(e)
-
-        resolve()
-      }
-
-      this.api.onclose = event => {
-        this.emitClose(event)
-
-        clearInterval(this.keepalive)
-      }
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
-  }
-
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
-    }
-  }
-
-  formatLiveTrades(json) {
-    if (!json.params || !json.params.data || !json.params.data.length) {
-      return
+  getMatch(pair) {
+    if (!this.products) {
+      return false
     }
 
-    return json.params.data.map(a => {
-      const trade = {
-        exchange: this.id,
-        timestamp: +a.timestamp,
-        price: +a.price,
-        size: a.amount / a.price,
-        side: a.direction
-      }
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
 
-      if (a.liquidation) {
-        trade.liquidation = true
+    // allow match to remote pair syntax also
+    // so both BTCUSD and BTC-PERPETUAL as localPair will work
+    for (let localPair in this.products) {
+      if (this.products[localPair] === pair) {
+        return this.products[localPair]
       }
+    }
 
-      return trade
-    })
+    return false
   }
 
   formatProducts(data) {
@@ -105,6 +45,74 @@ class Deribit extends Exchange {
       output[product.settlement === 'perpetual' ? product.baseCurrency + product.currency : product.instrumentName] = product.instrumentName
       return output
     }, {})
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        method: 'public/subscribe',
+        params: {
+          channels: ['trades.' + this.match[pair] + '.raw']
+        }
+      })
+    )
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    api.send(
+      JSON.stringify({
+        method: 'public/unsubscribe',
+        params: {
+          channels: ['trades.' + this.match[pair] + '.raw']
+        }
+      })
+    )
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json || !json.params || !json.params.data || !json.params.data.length) {
+      return
+    }
+
+    return this.emitTrades(
+      api.id,
+      json.params.data.map(a => {
+        const trade = {
+          exchange: this.id,
+          pair: a.instrument_name,
+          timestamp: +a.timestamp,
+          price: +a.price,
+          size: a.amount / a.price,
+          side: a.direction
+        }
+
+        if (a.liquidation) {
+          trade.liquidation = true
+        }
+
+        return trade
+      })
+    )
   }
 }
 

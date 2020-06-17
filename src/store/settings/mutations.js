@@ -3,11 +3,10 @@ import Vue from 'vue'
 import { uniqueName } from '../../utils/helpers'
 
 export default {
-  SET_PAIR(state, value) {
-    console.log('SET_PAIR', value.toString().toUpperCase())
-    state.pair = value.toString().toUpperCase()
+  SET_PAIRS(state, arr) {
+    console.log('SET_PAIRS', arr)
 
-    this.state.app.pairs = state.pair.split('+')
+    this.state.app.pairs = arr.map(a => a.trim().toUpperCase()).filter(a => a.length)
   },
   SET_QUOTE_AS_PREFERED_CURRENCY(state, value) {
     state.preferQuoteCurrencySize = value ? true : false
@@ -233,9 +232,6 @@ export default {
   },
   SET_EXCHANGE_THRESHOLD(state, payload) {
     Vue.set(state.exchanges[payload.exchange], 'threshold', +payload.threshold)
-  },
-  SET_EXCHANGE_MATCH(state, payload) {
-    Vue.set(state.exchanges[payload.exchange], 'match', payload.match)
   },
   TOGGLE_CHART(state, value) {
     state.showChart = value ? true : false

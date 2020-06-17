@@ -18,7 +18,7 @@ import { mapState } from 'vuex'
 
 import { getHms } from '../utils/helpers'
 
-import socket from '../services/socket'
+import aggregator from '../services/aggregator'
 
 const CHUNK = {
   timestamp: null,
@@ -43,11 +43,11 @@ export default {
     }
   },
   created() {
-    socket.$on('sums', this.onSums)
+    aggregator.on('sums', this.onSums)
 
     this.onStoreMutation = this.$store.subscribe(mutation => {
       switch (mutation.type) {
-        case 'settings/SET_PAIR':
+        case 'settings/SET_PAIRS':
           this.createCounters()
           break
         case 'settings/REPLACE_COUNTERS':
@@ -64,7 +64,7 @@ export default {
   },
   mounted() {},
   beforeDestroy() {
-    socket.$off('sums', this.onSums)
+    aggregator.off('sums', this.onSums)
 
     this.onStoreMutation()
 

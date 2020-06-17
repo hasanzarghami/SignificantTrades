@@ -1,4 +1,15 @@
 export default {
+  setAvailableExchanges({ state, commit }, exchanges) {
+    commit('EXCHANGES', exchanges)
+    for (let exchange in exchanges) {
+      if (!this.state.settings.exchanges[exchange]) {
+        this.state.settings.exchanges[exchange] = {
+          exchange:
+        }
+        return
+      }
+    }
+  },
   refreshExchange({ commit }, exchange) {
     const active =
       !this.state.settings.exchanges[exchange] ||

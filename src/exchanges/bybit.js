@@ -8,94 +8,76 @@ class Bybit extends Exchange {
 
     this.products = ['BTCUSD', 'ETHUSD', 'EOSUSD', 'XRPUSD']
 
-    this.endpoints = {
-      // PRODUCTS: 'not available yet'
+    this.mapping = pair => {
+      if (this.pairs.indexOf(pair) !== -1) {
+        return pair
+      }
+
+      return false
     }
 
     this.options = Object.assign(
       {
         url: () => {
-          return `wss://stream.bybit.com/realtime`
+          return `wss://stream.bybit.com/realtime/`
         }
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
-
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = () => {
-        this.skip = true
-
-        this.api.send(
-          JSON.stringify({
-            op: 'subscribe',
-            args: ['trade']
-          })
-        )
-
-        /* this.keepalive = setInterval(() => {
-                  this.api.send(JSON.stringify({
-                      op: 'ping',
-                  }));
-              }, 60000); */
-
-        this.emitOpen(event)
-
-        resolve()
-      }
-
-      this.api.onclose = event => {
-        this.emitClose(event)
-      }
-
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
-
-        reject()
-      }
-    })
-  }
-
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
+  getMatch(pair) {
+    if (this.products.indexOf(pair) !== -1) {
+      return pair
     }
+
+    return false
   }
 
-  formatLiveTrades(json) {
-    if (!json.data || json.topic !== 'trade.' + this.pair || !json.data.length) {
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api /*, pair */) {
+    if (!super.subscribe.apply(this, arguments)) {
       return
     }
 
-    return json.data.map(trade => {
-      return {
-        exchange: this.id,
-        timestamp: +new Date(trade.timestamp),
-        price: +trade.price,
-        size: trade.size / trade.price,
-        side: trade.side === 'Buy' ? 'buy' : 'sell'
-      }
-    })
+    api.send(
+      JSON.stringify({
+        op: 'subscribe',
+        args: ['trade']
+      })
+    )
   }
 
-  formatProducts(data) {
-    return data.result.reduce((output, product) => {
-      output[product.settlement === 'perpetual' ? product.baseCurrency + product.currency : product.instrumentName] = product.instrumentName
-      return output
-    }, {})
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json.data || !json.topic || !json.data.length) {
+      return
+    }
+
+    const pair = json.topic.split('.').pop()
+
+    if (this.pairs.indexOf(pair) === -1) {
+      return
+    }
+
+    return this.emitTrades(
+      api.id,
+      json.data.map(trade => {
+        return {
+          exchange: this.id,
+          pair: pair,
+          timestamp: +new Date(trade.timestamp),
+          price: +trade.price,
+          size: trade.size / trade.price,
+          side: trade.side === 'Buy' ? 'buy' : 'sell'
+        }
+      })
+    )
   }
 }
 

@@ -4,27 +4,6 @@
       <!-- <a href="https://github.com/Tucsky/SignificantTrades/issues" target="_blank" class="settings__report"><i class="icon-warning"></i> Found a bug or feedback ? Let me know on Github !</a> -->
       <div class="stack__wrapper">
         <a href="#" class="stack__toggler icon-cross" @click="$emit('close')"></a>
-        <div class="form-group settings-pair mb8">
-          <label>
-            Pair
-            <span class="icon-info-circle" title="The pair to aggregate from" v-tippy></span>
-          </label>
-          <input
-            type="string"
-            placeholder="BTCUSD"
-            class="form-control"
-            :value="pair"
-            @change="$store.commit('settings/SET_PAIR', $event.target.value)"
-          />
-          <small class="help-text mt8" v-if="showPairSubdomainHelp">
-            <i class="icon-info-circle"></i> Consider using
-            <a :href="'https://' + pair.replace(/\+/g, '_').toLowerCase() + '.aggr.trade'"
-              >https://{{ pair.replace(/\+/g, '_').toLowerCase() }}.aggr.trade</a
-            >
-            to hook your settings to
-            <strong>{{ pair }}</strong> indefinitely !
-          </small>
-        </div>
         <div class="mb8">
           <div class="form-group mb8">
             <label class="checkbox-control -auto" v-tippy title="Size display preference">
@@ -373,8 +352,10 @@
         </div>
         <div class="form-group">
           <div class="settings-exchanges">
-            <Exchange v-for="(exchange, index) in exchanges" :key="index" :exchange="exchange" />
-            <div v-if="!exchanges.length" class="mb8">You are not connected to any exchanges</div>
+            <Exchange v-for="(exchange, id) in exchanges" :key="id" :exchange="exchange" />
+            <button v-for="(exchange, id) in exchanges" :key="id" @click="$store.commit('settings/EDIT_EXCHANGE', id)" />
+
+            </button>
           </div>
         </div>
         <div
@@ -465,8 +446,6 @@ import { mapState } from 'vuex'
 import { ago } from '../utils/helpers'
 import { MASTER_DOMAIN } from '../utils/constants'
 
-import socket from '../services/socket'
-
 import Exchange from './Exchange.vue'
 import Thresholds from './Thresholds.vue'
 
@@ -484,7 +463,7 @@ export default {
     }
   },
   computed: {
-    ...mapState('app', ['actives', 'version', 'buildDate']),
+    ...mapState('app', ['actives', 'version', 'buildDate', 'exchanges']),
     ...mapState('settings', [
       'pair',
       'maxRows',
@@ -514,9 +493,6 @@ export default {
       'settings',
       'debug'
     ]),
-    exchanges: () => {
-      return socket.exchanges
-    },
     showPairSubdomainHelp: state => {
       if (!MASTER_DOMAIN || !state.pair) {
         return false

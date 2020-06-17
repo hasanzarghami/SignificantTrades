@@ -142,7 +142,7 @@ export function snakeToSentence(str) {
   return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
-export const setValueByDotNotation = (object, path, value) => {
+export function setValueByDotNotation(object, path, value) {
   if (path.length === 1) object[path[0]] = value
   else if (path.length === 0) throw 'error'
   else {
@@ -154,7 +154,7 @@ export const setValueByDotNotation = (object, path, value) => {
   }
 }
 
-export const slugify = string => {
+export function slugify(string) {
   const a = 'àáâäæãåāăąçćčđďèéêëēėęěğǵḧîïíīįìłḿñńǹňôöòóœøōõőṕŕřßśšşșťțûüùúūǘůűųẃẍÿýžźż·/_,:;'
   const b = 'aaaaaaaaaacccddeeeeeeeegghiiiiiilmnnnnoooooooooprrsssssttuuuuuuuuuwxyyzzz------'
   const p = new RegExp(a.split('').join('|'), 'g')
@@ -171,15 +171,16 @@ export const slugify = string => {
     .replace(/-+$/, '') // Trim - from end of text
 }
 
-export const getVisibleRange = (chartInstance, timeframe) => {
-  const visibleRange = chartInstance.timeScale().getVisibleRange()
+export function getVisibleRange(chartInstance) {
+  const visibleRange = chartInstance.timeScale().getVisibleLogicalRange()
 
   if (visibleRange) {
-    const scrollPosition = chartInstance.timeScale().scrollPosition()
-    if (scrollPosition > 0) {
-      visibleRange.to = Math.floor((visibleRange.to + scrollPosition * timeframe) / timeframe) * timeframe
-    }
-
     return { from: visibleRange.from, to: visibleRange.to, median: visibleRange.from + (visibleRange.to - visibleRange.from) / 2 }
   }
+}
+
+export function ID() {
+  return Math.random()
+    .toString(36)
+    .substr(2, 9)
 }

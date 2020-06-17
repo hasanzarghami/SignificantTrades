@@ -34,6 +34,7 @@ Vue.component('verte', Verte)
 import Editable from './components/ui/Editable'
 import Dropdown from './components/ui/Dropdown'
 import Slider from './components/ui/Slider'
+import aggregator from './services/aggregator'
 
 Vue.component('dropdown', Dropdown)
 Vue.component('editable', Editable)
@@ -43,5 +44,7 @@ new Vue({
   el: '#app',
   store,
   render: h => h(App),
-  props: ['initialized']
+  created() {
+    aggregator.loadExchanges()
+  }
 })

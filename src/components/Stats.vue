@@ -13,7 +13,7 @@
 <script>
 import { mapState } from 'vuex'
 import * as TV from 'lightweight-charts'
-import socket from '../services/socket'
+import aggregator from '../services/aggregator'
 import Counter from '../utils/counter'
 import MultiCounter from '../utils/multiCounter'
 import { defaultChartOptions, defaultLineOptions } from './chart/chartOptions'
@@ -37,6 +37,7 @@ import StatDialog from './StatDialog'
 import { create } from 'vue-modal-dialogs'
 
 import { formatAmount, getVisibleRange } from '../utils/helpers'
+
 /** @type {Counter[]} */
 const counters = []
 /** @type {TV.IChartApi} */
@@ -77,7 +78,7 @@ export default {
         case 'settings/SET_STAT_NAME':
           this.renameCounter(mutation.payload.value)
           break
-        case 'settings/SET_PAIR':
+        case 'settings/SET_PAIRS':
         case 'settings/SET_STATS_PERIOD':
           this.prepareCounters()
           break
@@ -103,10 +104,10 @@ export default {
       this.createChart()
     }
     this.prepareCounters()
-    socket.$on('sums', this.onSums)
+    aggregator.on('sums', this.onSums)
   },
   beforeDestroy() {
-    socket.$off('sums', this.onSums)
+    aggregator.off('sums', this.onSums)
     this.clearCounters()
     this.removeChart()
     this.onStoreMutation()
@@ -213,8 +214,6 @@ export default {
         const visibleRange = getVisibleRange(chart, 1)
 
         if (visibleRange) {
-          const scrollPosition = chart.timeScale().scrollPosition()
-
           const countersSeries = counters.filter(a => a.serie).map(a => a.serie._series)
           const data = counters.map(() => [])
 
@@ -246,8 +245,7 @@ export default {
             }
 
             if (visibleRange) {
-              chart.timeScale().scrollToPosition(scrollPosition)
-              chart.timeScale().setVisibleRange(visibleRange)
+              chart.timeScale().setVisibleLogicalRange(visibleRange)
             }
           })
         }

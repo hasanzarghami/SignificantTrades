@@ -5,109 +5,183 @@ class Kraken extends Exchange {
     super(options)
 
     this.id = 'kraken'
+    this.hasFutures = true
 
     this.endpoints = {
-      PRODUCTS: 'https://api.kraken.com/0/public/AssetPairs',
-      TRADES: () => `https://api.kraken.com/0/public/Trades?pair=${this.pair}`
+      PRODUCTS: ['https://api.kraken.com/0/public/AssetPairs', 'https://futures.kraken.com/derivatives/api/v3/instruments']
     }
 
     this.options = Object.assign(
       {
-        url: () => {
-          return `wss://ws.kraken.com`
+        url: pair => {
+          if (typeof this.specs[this.match[pair]] !== 'undefined') {
+            return 'wss://futures.kraken.com/ws/v1/'
+          } else {
+            return 'wss://ws.kraken.com/'
+          }
         }
       },
       this.options
     )
-
-    this.initialize()
   }
 
-  connect() {
-    const validation = super.connect()
-    if (!validation) return Promise.reject()
-    else if (validation instanceof Promise) return validation
+  getMatch(pair) {
+    if (this.products[pair]) {
+      return this.products[pair]
+    }
 
-    return new Promise((resolve, reject) => {
-      this.api = new WebSocket(this.getUrl())
-
-      this.api.onmessage = event => this.queueTrades(this.formatLiveTrades(JSON.parse(event.data)))
-
-      this.api.onopen = e => {
-        this.api.send(
-          JSON.stringify({
-            event: 'subscribe',
-            pair: [this.pair],
-            subscription: {
-              name: 'trade'
-            }
-          })
-        )
-
-        this.emitOpen(e)
-
-        resolve()
+    for (let id in this.products) {
+      if (this.products[id].toLowerCase() === pair.toLowerCase()) {
+        return this.products[id]
       }
+    }
 
-      this.api.onclose = this.emitClose.bind(this)
-      this.api.onerror = () => {
-        this.emitError({ message: `${this.id} disconnected` })
+    return false
+  }
 
-        reject()
+  formatProducts(response) {
+    const products = {}
+    const specs = {}
+
+    response.forEach(data => {
+      if (data.instruments) {
+        for (let product of data.instruments) {
+          if (!product.tradeable) {
+            continue
+          }
+
+          const remotePair = product.symbol.toUpperCase()
+          let pair = remotePair
+
+          if (/^PI_/i.test(pair)) {
+            pair = pair.replace(/^PI_/, '').replace('XBT', 'BTC') + '-PERPETUAL'
+          }
+
+          specs[remotePair] = product.contractSize
+          products[pair] = remotePair
+        }
+      } else if (data.result) {
+        for (let id in data.result) {
+          if (data.result[id].wsname) {
+            products[data.result[id].altname.replace('XBT', 'BTC')] = data.result[id].wsname
+          }
+        }
       }
     })
-  }
 
-  disconnect() {
-    if (!super.disconnect()) return
-
-    if (this.api && this.api.readyState < 2) {
-      this.api.close()
+    return {
+      products,
+      specs
     }
   }
 
-  formatLiveTrades(json) {
-    if (json && json[1] && json[1].length) {
-      return json[1].map(trade => ({
-        exchange: this.id,
-        timestamp: trade[2] * 1000,
-        price: +trade[0],
-        size: +trade[1],
-        side: trade[3] === 'b' ? 'buy' : 'sell'
-      }))
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  subscribe(api, pair) {
+    if (!super.subscribe.apply(this, arguments)) {
+      return
     }
 
-    return false
-  }
-
-  /* formatRecentsTrades(response) {
-    if (response && response.length) {
-      return response.reverse().map(trade => [
-        this.id,
-        +new Date(trade.timestamp),
-        trade.price,
-        trade.size / trade.price,
-        trade.side === 'Buy' ? 1 : 0
-      ])
+    const event = {
+      event: 'subscribe'
     }
-  } */
 
-  matchPairName(name) {
-    name = name.trim().replace('/', '')
-
-    if (this.products.indexOf(name) !== -1 || ((name = name.replace('BTC', 'XBT')) && this.products.indexOf(name) !== -1)) {
-      if (name.indexOf('/') === -1) {
-        name = name.slice(0, name.length - 3) + '/' + name.slice(name.length - 3, name.length)
+    if (typeof this.specs[this.match[pair]] !== 'undefined') {
+      // futures contract
+      event.product_ids = [this.match[pair]]
+      event.feed = 'trade'
+    } else {
+      // spot
+      event.pair = [this.match[pair]]
+      event.subscription = {
+        name: 'trade'
       }
+    }
 
-      return name
+    api.send(JSON.stringify(event))
+  }
+
+  /**
+   * Sub
+   * @param {WebSocket} api
+   * @param {string} pair
+   */
+  unsubscribe(api, pair) {
+    if (!super.unsubscribe.apply(this, arguments)) {
+      return
+    }
+
+    const event = {
+      event: 'unsubscribe'
+    }
+
+    if (typeof this.specs[pair] !== 'undefined') {
+      // futures contract
+      event.product_ids = [this.match[pair]]
+      event.feed = 'trade'
+    } else {
+      // spot
+      event.pair = [this.match[pair]]
+      event.subscription = {
+        name: 'trade'
+      }
+    }
+
+    api.send(JSON.stringify(event))
+  }
+
+  onMessage(event, api) {
+    const json = JSON.parse(event.data)
+
+    if (!json || json.event === 'heartbeat') {
+      return
+    }
+
+    if (json.feed === 'trade' && json.qty) {
+      // futures
+
+      return this.emitTrades(api.id, [
+        {
+          exchange: this.id + '_futures',
+          pair: json.product_id,
+          timestamp: json.time,
+          price: json.price,
+          size: json.qty / json.price,
+          side: json.side
+        }
+      ])
+    } else if (json[1] && json[1].length) {
+      // spot
+
+      return this.emitTrades(
+        api.id,
+        json[1].map(trade => ({
+          exchange: this.id,
+          pair: json[3],
+          timestamp: trade[2] * 1000,
+          price: +trade[0],
+          size: +trade[1],
+          side: trade[3] === 'b' ? 'buy' : 'sell'
+        }))
+      )
     }
 
     return false
   }
 
-  formatProducts(data) {
-    return Object.keys(data.result).map(id => data.result[id].altname)
+  onApiBinded(api) {
+    if (/futures/.test(api.url)) {
+      this.startKeepAlive(api)
+    }
+  }
+
+  onApiUnbinded(api) {
+    if (/futures/.test(api.url)) {
+      this.stopKeepAlive(api)
+    }
   }
 }
 
