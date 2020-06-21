@@ -1,11 +1,10 @@
 import Exchange from '../services/exchange'
 
-class Bitfinex extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
     this.id = 'bitfinex'
-    this.hasFutures = true
     this.channels = {}
     this.prices = {}
 
@@ -22,7 +21,7 @@ class Bitfinex extends Exchange {
   }
 
   formatProducts(data) {
-    return data.map(a => a.toUpperCase())
+    return data.filter(a => !/ustf0/.test(a)).map(a => a.toUpperCase())
   }
 
   /**
@@ -39,7 +38,7 @@ class Bitfinex extends Exchange {
       JSON.stringify({
         event: 'subscribe',
         channel: 'trades',
-        symbol: 't' + this.match[pair]
+        symbol: 't' + this.matchs[pair]
       })
     )
   }
@@ -54,7 +53,7 @@ class Bitfinex extends Exchange {
       return
     }
 
-    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === this.match[pair])
+    const channelsToUnsubscribe = Object.keys(this.channels).filter(id => this.channels[id].pair === this.matchs[pair])
 
     for (let id of channelsToUnsubscribe) {
       api.send(
@@ -122,7 +121,7 @@ class Bitfinex extends Exchange {
             const pair = a[4].substring(1)
 
             return {
-              exchange: this.id + '_futures',
+              exchange: this.id,
               pair: a[4].substring(1),
               timestamp: parseInt(a[2]),
               price: this.prices[api.id + pair],
@@ -135,5 +134,3 @@ class Bitfinex extends Exchange {
     }
   }
 }
-
-export default Bitfinex

@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Bitstamp extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -46,7 +46,7 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:subscribe',
         data: {
-          channel: 'live_trades_' + this.match[pair]
+          channel: 'live_trades_' + this.matchs[pair]
         }
       })
     )
@@ -66,7 +66,7 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:unsubscribe',
         data: {
-          channel: 'live_trades_' + this.match[pair]
+          channel: 'live_trades_' + this.matchs[pair]
         }
       })
     )
@@ -94,5 +94,3 @@ class Bitstamp extends Exchange {
     ])
   }
 }
-
-export default Bitstamp

@@ -2,19 +2,8 @@
 
 import EventEmitter from 'eventemitter3'
 
-import Kraken from '../exchanges/kraken'
-/*import Bitmex from '../exchanges/bitmex'
-import Huobi from '../exchanges/huobi'
-import Binance from '../exchanges/binance'
-import Bitfinex from '../exchanges/bitfinex'
-import Bitstamp from '../exchanges/bitstamp'
-import Gdax from '../exchanges/gdax'
-import Hitbtc from '../exchanges/hitbtc'
-import Okex from '../exchanges/okex'
-import Poloniex from '../exchanges/poloniex'
-import Deribit from '../exchanges/deribit'
-import Bybit from '../exchanges/bybit'
-import Ftx from '../exchanges/ftx'*/
+import exchanges from '../exchanges'
+
 import store from '../store'
 
 import '../data/typedef'
@@ -23,14 +12,12 @@ class Aggregator extends EventEmitter {
   constructor() {
     super()
 
-    this.exchanges = [new Kraken()]
-
     // aggregating trades
     this.queueBucket = {}
     // last source prices
     this.lastPrices = {}
     // last source prices
-    this.aggrBucket = {}
+    this.aggrBucket = []
     // aggregated stats
     this.sumsBucket = {
       vbuy: 0,
@@ -44,18 +31,6 @@ class Aggregator extends EventEmitter {
     this.matchs = {}
 
     this.bindTimers()
-    this.bindDestroy()
-    this.setAvailableExchanges()
-  }
-
-  bindDestroy() {
-    if (module.hot) {
-      module.hot.dispose(() => {
-        if (this._sumsInterval) {
-          clearInterval(this._sumsInterval)
-        }
-      })
-    }
   }
 
   bindTimers() {
@@ -82,7 +57,7 @@ class Aggregator extends EventEmitter {
   loadExchanges() {
     const promisesOfProducts = []
 
-    for (let exchange of this.exchanges) {
+    for (let exchange of exchanges) {
       exchange.on('trades', this.onTrades.bind(this, exchange))
       exchange.on('liquidations', this.onTrades.bind(this, exchange))
       exchange.on('subscribed', this.onSubscribed.bind(this, exchange))
@@ -93,9 +68,9 @@ class Aggregator extends EventEmitter {
     }
 
     Promise.all(promisesOfProducts).then(() => {
-      console.log(`[server] listen ${store.state.settings.pairs.join(',')} on ${this.exchanges.length} exchange(s)`)
+      console.log(`[server] listen ${store.state.settings.pairs.join(',')} on ${exchanges.length} exchange(s)`)
 
-      return this.connectPairs(store.state.settings.pairs)
+      return this.connectExchanges()
     })
   }
 
@@ -137,7 +112,7 @@ class Aggregator extends EventEmitter {
         this.aggrBucket.push(trades[i])
       }
 
-      this.$emit('trades', trades)
+      this.emit('trades', trades)
     } else {
       const now = +new Date()
 
@@ -194,14 +169,14 @@ class Aggregator extends EventEmitter {
         this.queueBucket[identifier].price *= this.queueBucket[identifier].size
       }
 
-      this.$emit('trades', trades)
+      this.emit('trades', trades)
     }
   }
 
   onLiquidations(/*exchange, { source, trades }*/) {}
 
   onSubscribed(exchange, localPair, remotePair, source) {
-    if (this.matchs[remotePair]) {
+    if (this.matchs[source + remotePair]) {
       return
     }
 
@@ -213,51 +188,28 @@ class Aggregator extends EventEmitter {
       hit: 0,
       timestamp: null
     }
-
-    store.dispatch('app/SET_EXCHANGE_MATCH', {
-      exchange: exchange.id,
-      match: remotePair
-    })
   }
 
   onUnsubscribed(exchange, localPair, remotePair, source) {
     if (this.matchs[source + remotePair]) {
       delete this.matchs[source + remotePair]
     }
-
-    store.dispatch('app/REMOVE_EXCHANGE_MATCH', source + remotePair)
   }
 
   /**
-   * Trigger subscribe to pairs on all activated exchanges
+   * Trigger subscribe to pairs (settings.pairs) on all enabled exchanges
    * @param {string[]} pairs
    * @returns {Promise<any>} promises of connections
    * @memberof Server
    */
-  connectPairs(pairs) {
-    console.log(`[server] connect to ${pairs.join(',')}`)
-
-    const promises = []
-
-    for (let exchange of this.exchanges) {
-      for (let pair of pairs) {
-        promises.push(
-          exchange.link(pair).catch(err => {
-            console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
-
-            if (err instanceof Error) {
-              console.error(err)
-            }
-          })
-        )
-      }
+  connectExchanges(pairs) {
+    if (typeof pairs === 'undefined' || !Array.isArray(pairs) || !pairs.length) {
+      pairs = store.state.settings.pairs
     }
 
-    if (promises.length) {
-      return Promise.all(promises)
-    } else {
-      return Promise.resolve()
-    }
+    console.log(`[server] connect exchanges`)
+
+    return Promise.all(exchanges.filter(exchange => store.state.settings.exchanges[exchange.id].enabled).map(exchange => exchange.connect(pairs)))
   }
 
   /**
@@ -266,38 +218,14 @@ class Aggregator extends EventEmitter {
    * @returns {Promise<void>} promises of disconnection
    * @memberof Server
    */
-  disconnectPairs(pairs) {
-    console.log(`[server] disconnect from ${pairs.join(',')}`)
+  disconnectExchanges(pairs) {
+    console.log(`[server] disconnect exchanges`)
 
-    const promises = []
-
-    for (let exchange of this.exchanges) {
-      for (let pair of pairs) {
-        if (!exchange.match[pair]) {
-          continue
-        }
-
-        promises.push(
-          exchange.unlink(pair).catch(err => {
-            console.debug(`[server/disconnectPairs/${exchange.id}] ${err}`)
-
-            if (err instanceof Error) {
-              console.error(err)
-            }
-          })
-        )
-      }
-    }
-
-    if (promises.length) {
-      return Promise.all(promises)
-    } else {
-      return Promise.resolve()
-    }
+    return Promise.all(exchanges.map(exchange => exchange.disconnect(pairs)))
   }
 
   getExchangeById(id) {
-    for (let exchange of this.exchanges) {
+    for (let exchange of exchanges) {
       if (exchange.id === id) {
         return exchange
       }
@@ -337,7 +265,7 @@ class Aggregator extends EventEmitter {
   }
   emitSums() {
     if (this.sumsBucket.timestamp) {
-      this.$emit('sums', this.sumsBucket)
+      this.emit('sums', this.sumsBucket)
 
       this.sumsBucket.timestamp = null
       this.sumsBucket.vbuy = 0
@@ -364,7 +292,7 @@ class Aggregator extends EventEmitter {
     }
 
     if (this.aggrBucket.length) {
-      this.$emit('trades.aggr', this.aggrBucket)
+      this.emit('trades.aggr', this.aggrBucket)
       this.aggrBucket.splice(0, this.aggrBucket.length)
     }
   }
@@ -378,26 +306,6 @@ class Aggregator extends EventEmitter {
     }
 
     return trade.slippage
-  }
-  setAvailableExchanges() {
-    const exchanges = this.exchanges.reduce((output, exchange) => {
-      let exchangeState = {
-        id: exchange.id,
-        get match() {
-          return exchange.
-        } 
-      }
-
-      output.push(exchange.id)
-
-      if (exchange.hasFutures) {
-        output.push(exchange.id + '_futures')
-      }
-
-      return output
-    }, [])
-
-    store.commit('app/SET_AVAILABLE_EXCHANGES', exchanges)
   }
 }
 

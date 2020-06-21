@@ -7,7 +7,7 @@
       :title="id"
       @click="$store.commit('settings/TOGGLE_EXCHANGE_VISIBILITY', id)"
     >
-      <div class="exchange__price" :class="{ '-hidden': exchanges[id].hidden }">
+      <div class="exchange__price" :class="{ '-hidden': !exchanges[id].visible }">
         <span v-html="$root.formatPrice(status[id].price)"></span> &nbsp;
       </div>
     </div>

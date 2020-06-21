@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Ftx extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -65,7 +65,7 @@ class Ftx extends Exchange {
       JSON.stringify({
         op: 'subscribe',
         channel: 'trades',
-        market: this.match[pair]
+        market: this.matchs[pair]
       })
     )
   }
@@ -84,7 +84,7 @@ class Ftx extends Exchange {
       JSON.stringify({
         op: 'unsubscribe',
         channel: 'trades',
-        market: this.match[pair]
+        market: this.matchs[pair]
       })
     )
   }
@@ -124,5 +124,3 @@ class Ftx extends Exchange {
     this.stopKeepAlive(api)
   }
 }
-
-export default Ftx

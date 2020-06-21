@@ -1,25 +1,18 @@
 import Exchange from '../services/exchange'
 
-class Kraken extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
     this.id = 'kraken'
-    this.hasFutures = true
 
     this.endpoints = {
-      PRODUCTS: ['https://api.kraken.com/0/public/AssetPairs', 'https://futures.kraken.com/derivatives/api/v3/instruments']
+      PRODUCTS: 'https://api.kraken.com/0/public/AssetPairs'
     }
 
     this.options = Object.assign(
       {
-        url: pair => {
-          if (typeof this.specs[this.match[pair]] !== 'undefined') {
-            return 'wss://futures.kraken.com/ws/v1/'
-          } else {
-            return 'wss://ws.kraken.com/'
-          }
-        }
+        url: 'wss://ws.kraken.com/'
       },
       this.options
     )
@@ -39,40 +32,16 @@ class Kraken extends Exchange {
     return false
   }
 
-  formatProducts(response) {
+  formatProducts(data) {
     const products = {}
-    const specs = {}
 
-    response.forEach(data => {
-      if (data.instruments) {
-        for (let product of data.instruments) {
-          if (!product.tradeable) {
-            continue
-          }
-
-          const remotePair = product.symbol.toUpperCase()
-          let pair = remotePair
-
-          if (/^PI_/i.test(pair)) {
-            pair = pair.replace(/^PI_/, '').replace('XBT', 'BTC') + '-PERPETUAL'
-          }
-
-          specs[remotePair] = product.contractSize
-          products[pair] = remotePair
-        }
-      } else if (data.result) {
-        for (let id in data.result) {
-          if (data.result[id].wsname) {
-            products[data.result[id].altname.replace('XBT', 'BTC')] = data.result[id].wsname
-          }
-        }
+    for (let id in data.result) {
+      if (data.result[id].wsname) {
+        products[data.result[id].altname.replace('XBT', 'BTC')] = data.result[id].wsname
       }
-    })
-
-    return {
-      products,
-      specs
     }
+
+    return products
   }
 
   /**
@@ -86,17 +55,9 @@ class Kraken extends Exchange {
     }
 
     const event = {
-      event: 'subscribe'
-    }
-
-    if (typeof this.specs[this.match[pair]] !== 'undefined') {
-      // futures contract
-      event.product_ids = [this.match[pair]]
-      event.feed = 'trade'
-    } else {
-      // spot
-      event.pair = [this.match[pair]]
-      event.subscription = {
+      event: 'subscribe',
+      pair: [this.matchs[pair]],
+      subscription: {
         name: 'trade'
       }
     }
@@ -115,17 +76,9 @@ class Kraken extends Exchange {
     }
 
     const event = {
-      event: 'unsubscribe'
-    }
-
-    if (typeof this.specs[pair] !== 'undefined') {
-      // futures contract
-      event.product_ids = [this.match[pair]]
-      event.feed = 'trade'
-    } else {
-      // spot
-      event.pair = [this.match[pair]]
-      event.subscription = {
+      event: 'unsubscribe',
+      pair: [this.matchs[pair]],
+      subscription: {
         name: 'trade'
       }
     }
@@ -140,22 +93,7 @@ class Kraken extends Exchange {
       return
     }
 
-    if (json.feed === 'trade' && json.qty) {
-      // futures
-
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id + '_futures',
-          pair: json.product_id,
-          timestamp: json.time,
-          price: json.price,
-          size: json.qty / json.price,
-          side: json.side
-        }
-      ])
-    } else if (json[1] && json[1].length) {
-      // spot
-
+    if (json[1] && json[1].length) {
       return this.emitTrades(
         api.id,
         json[1].map(trade => ({
@@ -168,21 +106,5 @@ class Kraken extends Exchange {
         }))
       )
     }
-
-    return false
-  }
-
-  onApiBinded(api) {
-    if (/futures/.test(api.url)) {
-      this.startKeepAlive(api)
-    }
-  }
-
-  onApiUnbinded(api) {
-    if (/futures/.test(api.url)) {
-      this.stopKeepAlive(api)
-    }
   }
 }
-
-export default Kraken

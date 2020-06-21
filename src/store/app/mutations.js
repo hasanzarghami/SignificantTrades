@@ -1,15 +1,26 @@
 import Vue from 'vue'
 
 export default {
-  SET_AVAILABLE_EXCHANGES(state, exchanges) {
-    state.exchanges = exchanges
+  SET_EXCHANGE_MATCH(state, { exchange, remotePair, localPair }) {
+    const matchs = state.exchanges[exchange].matchs
 
-    for (let exchange in exchanges) {
-      //todo
-    }
+    matchs.push({
+      localPair,
+      remotePair
+    })
+
+    Vue.set(state.exchanges[exchange], 'matchs', matchs)
   },
-  SET_EXCHANGE_MATCH(state, payload) {
-    Vue.set(state.exchanges[payload.exchange], 'match', payload.match)
+  UNSET_EXCHANGE_MATCH(state, { exchange, remotePair, localPair }) {
+    const matchs = state.exchanges[exchange].matchs
+
+    for (let match of matchs) {
+      if (match.remotePair === remotePair && match.localPair === localPair) {
+        matchs.splice(matchs.indexOf(match), 1)
+      }
+    }
+
+    Vue.set(state.exchanges[exchange], 'matchs', matchs)
   },
   EXCHANGE_UPDATED(state, { exchange, active }) {
     if (!this.state.settings.exchanges[exchange]) {
@@ -68,8 +79,10 @@ export default {
   SET_BUILD_DATE(state, value) {
     state.buildDate = value
   },
-  INDEX_PRODUCTS(state, { pairs, exchange }) {
-    for (let pair of pairs) {
+  INDEX_EXCHANGE_PRODUCTS(state, { exchange, products }) {
+    Vue.set(state.exchanges[exchange], 'products', products)
+
+    for (let pair of products) {
       if (state.indexedProducts[pair]) {
         state.indexedProducts[pair].count++
 

@@ -27,12 +27,6 @@ export default class Counter {
     })
 
     this.clear()
-
-    if (module.hot) {
-      module.hot.dispose(() => {
-        this.unbind()
-      })
-    }
   }
 
   clear() {

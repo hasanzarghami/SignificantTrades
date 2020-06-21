@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Huobi extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -36,7 +36,7 @@ class Huobi extends Exchange {
       JSON.stringify({
         method: 'subscribeTrades',
         params: {
-          symbol: this.match[pair]
+          symbol: this.matchs[pair]
         }
       })
     )
@@ -56,7 +56,7 @@ class Huobi extends Exchange {
       JSON.stringify({
         method: 'unsubscribeTrades',
         params: {
-          symbol: this.match[pair]
+          symbol: this.matchs[pair]
         }
       })
     )
@@ -82,5 +82,3 @@ class Huobi extends Exchange {
     )
   }
 }
-
-export default Huobi

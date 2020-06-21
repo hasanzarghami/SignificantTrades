@@ -30,7 +30,7 @@ class Exchange extends EventEmitter {
      * Active match (localPair => remotePair)
      * @type {{[localPair: string]: string}}
      */
-    this.match = {}
+    this.matchs = {}
 
     /**
      * promises of ws. opens
@@ -72,6 +72,38 @@ class Exchange extends EventEmitter {
   }
 
   /**
+   * Connect exchange to pairs (given or from global settings)
+   * @param {string[]} pairs
+   */
+  connect(pairs) {
+    if (typeof pairs === 'undefined' || !Array.isArray(pairs) || !pairs.length) {
+      pairs = store.state.settings.pairs
+    }
+
+    if (!pairs.length) {
+      return Promise.resolve()
+    }
+
+    return Promise.all(pairs.map(pair => this.link(pair)))
+  }
+
+  /**
+   * Disconnect exchange from pairs (given or from exchange current pairs)
+   * @param {string[]} pairs
+   */
+  disconnect(pairs) {
+    if (typeof pairs === 'undefined' || !Array.isArray(pairs) || !pairs.length) {
+      pairs = Object.keys(this.matchs)
+    }
+
+    if (!pairs.length) {
+      return Promise.resolve()
+    }
+
+    return Promise.all(pairs.map(pair => this.unlink(pair)))
+  }
+
+  /**
    * Get exchange equivalent for a given pair
    * @param {string} pair
    */
@@ -108,14 +140,20 @@ class Exchange extends EventEmitter {
 
     pair = this.fixLocalPair(pair, match)
 
-    for (let localPair in this.match) {
-      if (pair === localPair || (this.match[localPair] === match && this.getUrl(pair) === this.getUrl(localPair))) {
+    for (let localPair in this.matchs) {
+      if (pair === localPair || (this.matchs[localPair] === match && this.getUrl(pair) === this.getUrl(localPair))) {
         return Promise.reject(`${this.id} already connected to ${pair} (${this.id}:${match})`)
       }
     }
 
     this.pairs.push(match)
-    this.match[pair] = match
+    this.matchs[pair] = match
+
+    store.commit('app/SET_EXCHANGE_MATCH', {
+      exchange: this.id,
+      localPair: pair,
+      remotePair: match
+    })
 
     console.debug(`[${this.id}] linking ${pair}`)
 
@@ -123,8 +161,6 @@ class Exchange extends EventEmitter {
       if (api.readyState !== WebSocket.OPEN) {
         debugger
       }
-
-      this.emit('match', pair, match, api.id)
 
       this.subscribe(api, pair)
 
@@ -140,7 +176,7 @@ class Exchange extends EventEmitter {
   unlink(pair) {
     const api = this.getActiveApiByPair(pair)
 
-    if (!this.match[pair] || this.pairs.indexOf(this.match[pair]) === -1) {
+    if (!this.matchs[pair] || this.pairs.indexOf(this.matchs[pair]) === -1) {
       return Promise.resolve()
     }
 
@@ -153,10 +189,14 @@ class Exchange extends EventEmitter {
     // call exchange specific unsubscribe function
     this.unsubscribe(api, pair)
 
-    this.emit('unmatch', pair, this.match[pair], api.id)
+    store.commit('app/UNSET_EXCHANGE_MATCH', {
+      exchange: this.id,
+      localPair: pair,
+      remotePair: this.matchs[pair]
+    })
 
-    this.pairs.splice(this.pairs.indexOf(this.match[pair]), 1)
-    delete this.match[pair]
+    this.pairs.splice(this.pairs.indexOf(this.matchs[pair]), 1)
+    delete this.matchs[pair]
 
     if (!api._pairs.length) {
       return this.unbindApi(api)
@@ -279,10 +319,10 @@ class Exchange extends EventEmitter {
       this.onApiBinded(api)
     } else {
       if (this.connecting[api.url]) {
-        console.log(`[${this.id}] attach ${pair} to connecting api ${api.url}`)
+        console.debug(`[${this.id}] attach ${pair} to connecting api ${api.url}`)
         toResolve = this.connecting[api.url].promise
       } else {
-        console.log(`[${this.id}] attach ${pair} to connected api ${api.url}`)
+        console.debug(`[${this.id}] attach ${pair} to connected api ${api.url}`)
         toResolve = Promise.resolve(api)
       }
     }
@@ -479,21 +519,19 @@ class Exchange extends EventEmitter {
   }
 
   indexProducts() {
-    this.indexedProducts = []
+    let products = []
 
-    if (!this.products) {
-      return
+    if (this.products) {
+      if (Array.isArray(this.products)) {
+        products = this.products.slice(0, this.products.length)
+      } else if (typeof this.products === 'object') {
+        products = Object.keys(this.products)
+      }
     }
 
-    if (Array.isArray(this.products)) {
-      this.indexedProducts = this.products.slice(0, this.products.length)
-    } else if (typeof this.products === 'object') {
-      this.indexedProducts = Object.keys(this.products)
-    }
-
-    store.commit('app/INDEX_PRODUCTS', {
-      pairs: this.indexedProducts,
-      exchange: this.id
+    store.commit('app/INDEX_EXCHANGE_PRODUCTS', {
+      exchange: this.id,
+      products
     })
   }
 
@@ -577,6 +615,8 @@ class Exchange extends EventEmitter {
 
     api._pairs.push(pair)
 
+    this.emit('subscribed', pair, this.matchs[pair], api.id)
+
     return true
   }
 
@@ -594,6 +634,8 @@ class Exchange extends EventEmitter {
 
     api._pairs.splice(index, 1)
 
+    this.emit('unsubscribed', pair, this.matchs[pair], api.id)
+
     return api.readyState === WebSocket.OPEN
   }
 
@@ -608,8 +650,8 @@ class Exchange extends EventEmitter {
     }
 
     this.emit('trades', {
-      source: source,
-      data: trades
+      source,
+      trades
     })
 
     return true
@@ -626,8 +668,8 @@ class Exchange extends EventEmitter {
     }
 
     this.emit('liquidations', {
-      source: source,
-      data: trades
+      source,
+      trades
     })
 
     return true
@@ -640,8 +682,8 @@ class Exchange extends EventEmitter {
 
     let pair = remotePair
 
-    for (let localPair in this.match) {
-      if (this.match[localPair] === pair) {
+    for (let localPair in this.matchs) {
+      if (this.matchs[localPair] === pair) {
         pair = localPair
         break
       }
@@ -653,13 +695,13 @@ class Exchange extends EventEmitter {
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
-    if (this.keepAliveIntervals[api.url]) {
+    if (this.keepAliveIntervals[api.id]) {
       this.stopKeepAlive(api)
     }
 
-    console.debug(`[${this.id}] setup keepalive for ws ${api.url}`)
+    console.debug(`[${this.id}] setup keepalive for ws ${api.id}`)
 
-    this.keepAliveIntervals[api.url] = setInterval(() => {
+    this.keepAliveIntervals[api.id] = setInterval(() => {
       if (api.readyState === WebSocket.OPEN) {
         api.send(JSON.stringify(payload))
       }
@@ -667,14 +709,14 @@ class Exchange extends EventEmitter {
   }
 
   stopKeepAlive(api) {
-    if (!this.keepAliveIntervals[api.url]) {
+    if (!this.keepAliveIntervals[api.id]) {
       return
     }
 
-    console.debug(`[${this.id}] stop keepalive for ws ${api.url}`)
+    console.debug(`[${this.id}] stop keepalive for ws ${api.id}`)
 
-    clearInterval(this.keepAliveIntervals[api.url])
-    delete this.keepAliveIntervals[api.url]
+    clearInterval(this.keepAliveIntervals[api.id])
+    delete this.keepAliveIntervals[api.id]
   }
 
   fixLocalPair(localPair, remotePair) {

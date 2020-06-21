@@ -5,15 +5,28 @@ export default class extends Exchange {
   constructor(options) {
     super(options)
 
-    this.id = 'huobi'
+    this.id = 'huobi_futures'
+
+    this.contractTypesAliases = {
+      this_week: 'CW',
+      next_week: 'NW',
+      quarter: 'CQ',
+      next_quarter: 'NQ'
+    }
 
     this.endpoints = {
-      PRODUCTS: 'https://api.huobi.pro/v1/common/symbols'
+      PRODUCTS: ['https://api.hbdm.com/api/v1/contract_contract_info', 'https://api.hbdm.com/swap-api/v1/swap_contract_info']
     }
 
     this.options = Object.assign(
       {
-        url: 'wss://api.huobi.pro/ws/'
+        url: pair => {
+          if (this.types[this.matchs[pair]] === 'futures') {
+            return 'wss://www.hbdm.com/ws/'
+          } else if (this.types[this.matchs[pair]] === 'swap') {
+            return 'wss://api.hbdm.com/swap-ws/'
+          }
+        }
       },
       this.options
     )
@@ -34,15 +47,37 @@ export default class extends Exchange {
     return remotePair || false
   }
 
-  formatProducts(data) {
+  formatProducts(response) {
     const products = {}
+    const specs = {}
+    const types = {}
 
-    data.data.forEach(product => {
-      let pair = (product['base-currency'] + product['quote-currency']).toUpperCase()
-      products[pair] = pair.toLowerCase()
+    response.forEach((data, index) => {
+      data.data.forEach(product => {
+        let pair
+
+        switch (['futures', 'swap'][index]) {
+          case 'futures':
+            pair = product.symbol + '_' + this.contractTypesAliases[product.contract_type]
+            products[product.symbol + 'USD' + '-' + product.contract_type.toUpperCase()] = pair
+            products[product.contract_code] = pair
+            specs[pair] = +product.contract_size
+            types[pair] = 'futures'
+            break
+          case 'swap':
+            products[product.symbol + 'USD' + '-PERPETUAL'] = product.contract_code
+            types[product.contract_code] = 'swap'
+            specs[product.contract_code] = +product.contract_size
+            break
+        }
+      })
     })
 
-    return products
+    return {
+      products,
+      specs,
+      types
+    }
   }
 
   /**
@@ -107,6 +142,10 @@ export default class extends Exchange {
         api.id,
         json.tick.data.map(trade => {
           let amount = +trade.amount
+
+          if (typeof this.specs[remotePair] !== 'undefined') {
+            amount = (amount * this.specs[remotePair]) / trade.price
+          }
 
           return {
             exchange: this.id,

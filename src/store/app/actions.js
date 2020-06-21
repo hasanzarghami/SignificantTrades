@@ -1,27 +1,4 @@
 export default {
-  setAvailableExchanges({ state, commit }, exchanges) {
-    commit('EXCHANGES', exchanges)
-    for (let exchange in exchanges) {
-      if (!this.state.settings.exchanges[exchange]) {
-        this.state.settings.exchanges[exchange] = {
-          exchange:
-        }
-        return
-      }
-    }
-  },
-  refreshExchange({ commit }, exchange) {
-    const active =
-      !this.state.settings.exchanges[exchange] ||
-      (this.state.settings.exchanges[exchange].match &&
-        !this.state.settings.exchanges[exchange].disabled &&
-        !this.state.settings.exchanges[exchange].hidden)
-
-    commit('EXCHANGE_UPDATED', {
-      exchange,
-      active
-    })
-  },
   showNotice({ commit, dispatch }, notice) {
     dispatch('hideNotice', notice.id)
 

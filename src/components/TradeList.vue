@@ -21,8 +21,6 @@ let SIGNIFICANT_AMOUNT // alias threshold[1].amount
 let COLORS // prepared array of buy / sell colors ranges
 let GIFS // gifs from storages, by threshold gif keyword
 
-let activeExchanges = []
-
 export default {
   data() {
     return {
@@ -42,23 +40,16 @@ export default {
       'preferQuoteCurrencySize',
       'decimalPrecision',
       'showLogos'
-    ]),
-    ...mapState('app', ['actives'])
+    ])
   },
   created() {
-    // cache list of active exchange
-    activeExchanges = this.$store.state.app.actives.slice(0, this.$store.state.app.actives.length)
-
     this.retrieveStoredGifs()
     this.prepareColorsSteps()
 
     aggregator.on('trades.aggr', this.onTrades)
 
-    this.onStoreMutation = this.$store.subscribe((mutation, state) => {
+    this.onStoreMutation = this.$store.subscribe(mutation => {
       switch (mutation.type) {
-        case 'app/EXCHANGE_UPDATED':
-          activeExchanges = state.app.actives.slice(0, state.app.actives.length)
-          break
         case 'settings/SET_PAIRS':
           this.clearList()
           break
@@ -140,8 +131,9 @@ export default {
   },
   methods: {
     onTrades(trades) {
+      console.log(trades)
       for (let i = 0; i < trades.length; i++) {
-        if (activeExchanges.indexOf(trades[i].exchange) === -1) {
+        if (!this.exchanges[trades[i].exchange].visible) {
           continue
         }
 

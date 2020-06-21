@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Bitmex extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -69,7 +69,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]]
+        args: ['trade:' + this.matchs[pair], 'liquidation:' + this.matchs[pair]]
       })
     )
   }
@@ -87,7 +87,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]]
+        args: ['trade:' + this.matchs[pair], 'liquidation:' + this.matchs[pair]]
       })
     )
   }
@@ -125,5 +125,3 @@ class Bitmex extends Exchange {
     }
   }
 }
-
-export default Bitmex

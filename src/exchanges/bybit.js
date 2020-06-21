@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Bybit extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -80,5 +80,3 @@ class Bybit extends Exchange {
     )
   }
 }
-
-export default Bybit

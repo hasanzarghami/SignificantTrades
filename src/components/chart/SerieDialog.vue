@@ -118,13 +118,6 @@ export default {
     this.type = typeof this.userPreferences.type === 'undefined' ? seriesData[this.id].type : this.userPreferences.type
 
     this.refreshModel()
-
-    if (module.hot) {
-      module.hot.dispose(() => {
-        debugger
-        this.$close(false)
-      })
-    }
   },
   methods: {
     getType(value, key) {

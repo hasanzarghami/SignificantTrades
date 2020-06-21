@@ -194,20 +194,25 @@ export default {
   DELETE_THREDELETE_THRESHOLD(state, index) {
     state.thresholds.splice(index, 1)
   },
-  ENABLE_EXCHANGE(state, exchange) {
-    Vue.set(state.exchanges[exchange], 'disabled', false)
+  ENABLE_EXCHANGE(state, id) {
+    Vue.set(state.exchanges[id], 'enabled', true)
+    Vue.set(state.exchanges[id], 'visible', true)
   },
-  DISABLE_EXCHANGE(state, exchange) {
-    Vue.set(state.exchanges[exchange], 'disabled', true)
+  DISABLE_EXCHANGE(state, id) {
+    Vue.set(state.exchanges[id], 'visible', false)
+    Vue.set(state.exchanges[id], 'enabled', false)
   },
-  SHOW_EXCHANGE(state, exchange) {
-    Vue.set(state.exchanges[exchange], 'hidden', false)
+  SHOW_EXCHANGE(state, id) {
+    Vue.set(state.exchanges[id], 'visible', false)
   },
-  HIDE_EXCHANGE(state, exchange) {
-    Vue.set(state.exchanges[exchange], 'hidden', true)
+  HIDE_EXCHANGE(state, id) {
+    Vue.set(state.exchanges[id], 'visible', true)
   },
-  TOGGLE_EXCHANGE_VISIBILITY(state, exchange) {
-    Vue.set(state.exchanges[exchange], 'hidden', state.exchanges[exchange].hidden === true ? false : true)
+  TOGGLE_EXCHANGE_VISIBILITY(state, id) {
+    Vue.set(state.exchanges[id], 'visible', state.exchanges[id].visible === true ? false : true)
+  },
+  SET_EXCHANGE_THRESHOLD(state, payload) {
+    Vue.set(state.exchanges[payload.exchange], 'threshold', +payload.threshold)
   },
   TOGGLE_SETTINGS_PANEL(state, value) {
     const index = state.settings.indexOf(value)
@@ -229,9 +234,6 @@ export default {
   },
   SET_TIMEFRAME(state, value) {
     state.timeframe = value
-  },
-  SET_EXCHANGE_THRESHOLD(state, payload) {
-    Vue.set(state.exchanges[payload.exchange], 'threshold', +payload.threshold)
   },
   TOGGLE_CHART(state, value) {
     state.showChart = value ? true : false

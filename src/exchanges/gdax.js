@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Gdax extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -62,7 +62,7 @@ class Gdax extends Exchange {
     api.send(
       JSON.stringify({
         type: 'subscribe',
-        channels: [{ name: 'matches', product_ids: [this.match[pair]] }]
+        channels: [{ name: 'matches', product_ids: [this.matchs[pair]] }]
       })
     )
   }
@@ -80,7 +80,7 @@ class Gdax extends Exchange {
     api.send(
       JSON.stringify({
         type: 'unsubscribe',
-        channels: [{ name: 'matches', product_ids: [this.match[pair]] }]
+        channels: [{ name: 'matches', product_ids: [this.matchs[pair]] }]
       })
     )
   }
@@ -102,5 +102,3 @@ class Gdax extends Exchange {
     }
   }
 }
-
-export default Gdax

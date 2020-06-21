@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Deribit extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -61,7 +61,7 @@ class Deribit extends Exchange {
       JSON.stringify({
         method: 'public/subscribe',
         params: {
-          channels: ['trades.' + this.match[pair] + '.raw']
+          channels: ['trades.' + this.matchs[pair] + '.raw']
         }
       })
     )
@@ -81,7 +81,7 @@ class Deribit extends Exchange {
       JSON.stringify({
         method: 'public/unsubscribe',
         params: {
-          channels: ['trades.' + this.match[pair] + '.raw']
+          channels: ['trades.' + this.matchs[pair] + '.raw']
         }
       })
     )
@@ -115,5 +115,3 @@ class Deribit extends Exchange {
     )
   }
 }
-
-export default Deribit

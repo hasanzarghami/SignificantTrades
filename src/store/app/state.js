@@ -1,6 +1,16 @@
+import exchanges from '../../exchanges'
+
 export default {
   pairs: [],
-  exchanges: {},
+  exchanges: exchanges.reduce((state, exchange) => {
+    state[exchange.id] = {
+      products: [],
+      matchs: [],
+      apis: []
+    }
+
+    return state
+  }, {}),
   showSearch: false,
   actives: [],
   activeSeries: [],

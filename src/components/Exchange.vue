@@ -2,31 +2,27 @@
   <div
     class="settings-exchange"
     :class="{
-      '-active': exchange.connected,
-      '-enabled': !settings.disabled,
-      '-loading': !settings.disabled && !exchange.connected && exchange.valid,
-      '-error': exchange.error,
-      '-unmatched': !exchange.valid,
-      '-invisible': settings.hidden,
+      '-active': state.matchs.length,
+      '-hidden': !settings.visible,
+      '-enabled': settings.enabled,
       '-expanded': expanded
     }"
   >
     <div class="settings-exchange__header" @click="toggleExchange">
-      <span v-if="!isNaN(exchangeMultiplier) && exchangeMultiplier !== 1" class="settings-exchange__threshold">{{
-        $root.formatAmount(minimumThreshold * exchangeMultiplier)
+      <span v-if="!isNaN(settings.threshold) && settings.threshold !== 1" class="settings-exchange__threshold">{{
+        $root.formatAmount(minimumThreshold * settings.threshold)
       }}</span>
       <div class="settings-exchange__identity">
         <div class="settings-exchange__name">{{ exchange.id.replace('_', ' ') }}</div>
-        <small class="settings-exchange__error" v-if="exchange.error">
-          {{ exchange.error }}
+        <small class="settings-exchange__matchs" v-if="state.matchs.length">
+          <span v-for="(match, index) in state.matchs" :key="index">{{ match.localPair }}</span>
         </small>
-        <small class="settings-exchange__price" v-if="exchange.price" v-html="$root.formatPrice(exchange.price)"></small>
       </div>
       <div class="settings-exchange__controls">
         <button
           class="settings-exchange__visibility"
           v-tippy
-          :title="exchange.hidden ? 'Show' : 'Hide (from everything)'"
+          :title="exchange.visible ? 'Show' : 'Hide (from everything)'"
           @click.stop.prevent="$store.commit('settings/TOGGLE_EXCHANGE_VISIBILITY', exchange.id)"
         >
           <i class="icon-eye"></i>
@@ -40,13 +36,13 @@
       <div class="form-group">
         <label class="column" style="justify-content:space-between">
           <span class="condensed">Adj. threshold:</span>
-          <span v-if="exchanges[exchange.id].threshold !== 1">{{ $root.formatAmount(minimumThreshold * exchangeMultiplier) }}</span>
+          <span v-if="settings.threshold !== 1">{{ $root.formatAmount(minimumThreshold * settings.threshold) }}</span>
         </label>
         <slider
           :step="0.0001"
           :min="0"
           :max="2"
-          :value="exchanges[exchange.id].threshold"
+          :value="settings.threshold"
           @reset="
             $store.commit('settings/SET_EXCHANGE_THRESHOLD', {
               exchange: exchange.id,
@@ -61,17 +57,15 @@
           "
         />
       </div>
-      <div v-if="exchange.indexedProducts.length" class="form-group mt8">
-        <button v-if="canRefreshProducts" class="btn -red -small" @click="refreshProducts">
-          Refresh products ({{ exchange.indexedProducts.length }})
-        </button>
+      <div v-if="state.products.length" class="form-group mt8">
+        <button v-if="canRefreshProducts" class="btn -red -small" @click="refreshProducts">Refresh products ({{ state.products.length }})</button>
       </div>
     </div>
   </div>
 </template>
 
 <script>
-import { mapState } from 'vuex'
+import store from '../store'
 
 export default {
   data() {
@@ -82,28 +76,25 @@ export default {
   },
   props: ['exchange'],
   computed: {
-    ...mapState('settings', ['pair', 'exchanges']),
-    settings() {
-      return this.$store.state.settings.exchanges[this.exchange.id]
+    state: function() {
+      console.log('get state', this)
+      return store.state.app.exchanges[this.exchange.id]
     },
-    minimumThreshold() {
-      return this.$store.state.settings.thresholds[0].amount
+    settings: function() {
+      console.log('get settings', store.state.settings.exchanges)
+      return store.state.settings.exchanges[this.exchange.id]
     },
-    exchangeMultiplier() {
-      return typeof this.$store.state.settings.exchanges[this.exchange.id].threshold === 'undefined'
-        ? 1
-        : this.$store.state.settings.exchanges[this.exchange.id].threshold
+    minimumThreshold: function() {
+      return store.state.settings.thresholds[0].amount
     }
   },
   methods: {
     toggleExchange() {
-      if (!this.settings.disabled) {
+      if (this.settings.enabled) {
         this.exchange.disconnect()
-
         this.$store.commit('settings/DISABLE_EXCHANGE', this.exchange.id)
       } else {
-        this.exchange.connect(this.pair)
-
+        this.exchange.connect()
         this.$store.commit('settings/ENABLE_EXCHANGE', this.exchange.id)
       }
     },
@@ -132,12 +123,6 @@ export default {
   transition: all 0.2s $easeOutExpo;
   border-radius: 2px;
   margin-bottom: 8px;
-  flex-basis: calc(50% - 4px);
-  max-width: calc(50% - 4px);
-
-  &:nth-child(odd) {
-    margin-right: 8px;
-  }
 
   &.-loading {
     background-color: $blue;
@@ -169,14 +154,14 @@ export default {
       display: flex;
     }
 
-    &.-invisible {
+    &.-hidden {
       .icon-visibility:before {
         transform: scale(1.2) rotateY(180deg);
       }
     }
   }
 
-  &.-invisible {
+  &.-hidden {
     opacity: 0.8;
 
     .icon-eye:before {
@@ -237,8 +222,17 @@ export default {
   }
 }
 
-.settings-exchange__price {
+.settings-exchange__matchs {
   opacity: 0.8;
+
+  span + span {
+    margin-left: 0.1em;
+
+    &:before {
+      content: '/';
+      margin-right: 0.1em;
+    }
+  }
 }
 
 .settings-exchange__threshold {

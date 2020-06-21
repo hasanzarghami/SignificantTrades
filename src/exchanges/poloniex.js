@@ -1,6 +1,6 @@
 import Exchange from '../services/exchange'
 
-class Poloniex extends Exchange {
+export default class extends Exchange {
   constructor(options) {
     super(options)
 
@@ -59,7 +59,7 @@ class Poloniex extends Exchange {
     api.send(
       JSON.stringify({
         command: 'subscribe',
-        channel: this.match[pair]
+        channel: this.matchs[pair]
       })
     )
   }
@@ -77,7 +77,7 @@ class Poloniex extends Exchange {
     api.send(
       JSON.stringify({
         command: 'unsubscribe',
-        channel: this.match[pair]
+        channel: this.matchs[pair]
       })
     )
   }
@@ -110,5 +110,3 @@ class Poloniex extends Exchange {
     }
   }
 }
-
-export default Poloniex

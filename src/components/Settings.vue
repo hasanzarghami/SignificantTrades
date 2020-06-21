@@ -352,10 +352,7 @@
         </div>
         <div class="form-group">
           <div class="settings-exchanges">
-            <Exchange v-for="(exchange, id) in exchanges" :key="id" :exchange="exchange" />
-            <button v-for="(exchange, id) in exchanges" :key="id" @click="$store.commit('settings/EDIT_EXCHANGE', id)" />
-
-            </button>
+            <Exchange v-for="exchange in exchanges" :key="exchange.id" :exchange="exchange" />
           </div>
         </div>
         <div
@@ -446,6 +443,7 @@ import { mapState } from 'vuex'
 import { ago } from '../utils/helpers'
 import { MASTER_DOMAIN } from '../utils/constants'
 
+import exchanges from '../exchanges'
 import Exchange from './Exchange.vue'
 import Thresholds from './Thresholds.vue'
 
@@ -463,7 +461,7 @@ export default {
     }
   },
   computed: {
-    ...mapState('app', ['actives', 'version', 'buildDate', 'exchanges']),
+    ...mapState('app', ['actives', 'version', 'buildDate']),
     ...mapState('settings', [
       'pair',
       'maxRows',
@@ -501,7 +499,8 @@ export default {
       const match = window.location.hostname.match(/^([\d\w]+)\..*\./i)
 
       return !match || match.length < 2 || match[1].toLowerCase() !== state.pair.toLowerCase()
-    }
+    },
+    exchanges: () => exchanges
   },
   created() {
     this.stringifyCounters()
@@ -949,9 +948,7 @@ export default {
 
   .settings-exchanges {
     display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: flex-start;
+    flex-direction: column;
   }
 
   &.open {

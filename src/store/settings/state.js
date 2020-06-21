@@ -1,6 +1,7 @@
 import { parseQueryString } from '../../utils/helpers'
 import { MASTER_DOMAIN } from '../../utils/constants'
 import DEFAULTS from './defaults.json'
+import exchanges from '../../exchanges'
 
 /**
  *  QUERY STRING PARSER
@@ -33,27 +34,52 @@ try {
 const EXTRA = {}
 
 if (MASTER_DOMAIN) {
-  const subdomain = window.location.hostname.match(/^([\d\w\-_]+)\..*\./i)
+  const subdomain = window.location.hostname.matchs(/^([\d\w\-_]+)\..*\./i)
   const except = ['beta', 'www']
 
   if (subdomain && subdomain.length >= 2 && except.indexOf(subdomain[1]) === -1) {
-    EXTRA.pair = subdomain[1].replace(/_/g, '+').toUpperCase()
+    EXTRA.pairs = subdomain[1]
+      .replace(/_/g, '+')
+      .toUpperCase()
+      .split('+')
   }
 }
 
-// 14/04/20 (2.5)
-// timeframe is now stored in seconds
-if (STORED.timeframe > 1000) {
-  STORED.timeframe /= 1000
-}
-// 22/04/20
-if (STORED.statsCounters) {
-  for (let counter of STORED.statsCounters) {
-    counter.output = counter.output
-      .replace(/buyCount/g, 'cbuy')
-      .replace(/sellCount/g, 'csell')
-      .replace(/buyAmount/g, 'vbuy')
-      .replace(/sellAmount/g, 'vsell')
+/**
+ * Default exchanges specific settings
+ */
+EXTRA.exchanges = exchanges.reduce((state, exchange) => {
+  state[exchange.id] = {
+    enabled: true,
+    visible: true,
+    active: true,
+    threshold: 1
+  }
+
+  return state
+}, {})
+
+// 20/06/20
+// exchange specific settings format changed again !
+// .hidden = !.visible
+// .disable = !.enabled
+if (STORED.exchanges && STORED.exchanges.length) {
+  for (let exchange of STORED.exchanges) {
+    if (typeof exchange.hidden !== 'undefined') {
+      exchange.visible = !exchange.hidden
+      delete exchange.hidden
+    }
+
+    if (typeof exchange.disabled !== 'undefined') {
+      exchange.enabled = !exchange.disabled
+      delete exchange.disabled
+    }
+
+    exchange.active = exchange.enabled && exchange.visible
+
+    if (typeof exchange.threshold === 'undefined') {
+      exchange.threshold = 1
+    }
   }
 }
 

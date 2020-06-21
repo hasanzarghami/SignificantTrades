@@ -5,7 +5,6 @@
     :data-base="baseCurrency"
     :data-quote="quoteCurrency"
     :data-symbol="symbol"
-    :data-pair="pair"
     :class="{
       loading: isLoading
     }"
@@ -104,8 +103,8 @@ export default {
     }
   },
   computed: {
-    ...mapState('app', ['isLoading', 'actives', 'notices', 'showSearch', 'pairs']),
-    ...mapState('settings', ['pair', 'showChart', 'showCounters', 'showStats', 'decimalPrecision', 'preferQuoteCurrencySize', 'showExchangesBar'])
+    ...mapState('app', ['isLoading', 'actives', 'notices', 'showSearch']),
+    ...mapState('settings', ['pairs', 'showChart', 'showCounters', 'showStats', 'decimalPrecision', 'preferQuoteCurrencySize', 'showExchangesBar'])
   },
   created() {
     this.$root.formatPrice = formatPrice
