@@ -131,7 +131,6 @@ export default {
   },
   methods: {
     onTrades(trades) {
-      console.log(trades)
       for (let i = 0; i < trades.length; i++) {
         if (!this.exchanges[trades[i].exchange].visible) {
           continue

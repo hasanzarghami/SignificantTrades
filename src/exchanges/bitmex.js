@@ -5,7 +5,6 @@ export default class extends Exchange {
     super(options)
 
     this.id = 'bitmex'
-    this.pairCurrencies = {}
 
     this.endpoints = {
       PRODUCTS: 'https://www.bitmex.com/api/v1/instrument/active'
@@ -22,6 +21,10 @@ export default class extends Exchange {
   }
 
   getMatch(pair) {
+    if (!this.products) {
+      return
+    }
+
     let remotePair = this.products[pair]
 
     if (!remotePair) {
@@ -38,6 +41,7 @@ export default class extends Exchange {
 
   formatProducts(data) {
     const products = {}
+    const currencies = {}
 
     for (let product of data) {
       let pair = product.symbol.replace('XBT', 'BTC')
@@ -47,12 +51,12 @@ export default class extends Exchange {
       }
 
       products[pair] = product.symbol
-
-      this.pairCurrencies[product.symbol] = product.quoteCurrency
+      currencies[product.symbol] = product.quoteCurrency
     }
 
     return {
-      products
+      products,
+      currencies
     }
   }
 
@@ -104,7 +108,7 @@ export default class extends Exchange {
             pair: trade.symbol,
             timestamp: +new Date(),
             price: trade.price,
-            size: trade.leavesQty / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            size: trade.leavesQty / (this.currencies[trade.symbol] === 'USD' ? trade.price : 1),
             side: trade.side === 'Buy' ? 'buy' : 'sell',
             liquidation: true
           }))
@@ -117,7 +121,7 @@ export default class extends Exchange {
             pair: trade.symbol,
             timestamp: +new Date(trade.timestamp),
             price: trade.price,
-            size: trade.size / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            size: trade.size / (this.currencies[trade.symbol] === 'USD' ? trade.price : 1),
             side: trade.side === 'Buy' ? 'buy' : 'sell'
           }))
         )

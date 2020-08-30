@@ -21,6 +21,10 @@ export default class extends Exchange {
   }
 
   getMatch(pair) {
+    if (!this.products) {
+      return
+    }
+
     if (this.products[pair]) {
       return this.products[pair]
     }

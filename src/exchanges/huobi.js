@@ -20,6 +20,10 @@ export default class extends Exchange {
   }
 
   getMatch(pair) {
+    if (!this.products) {
+      return false
+    }
+
     let remotePair = this.products[pair]
 
     if (!remotePair) {

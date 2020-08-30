@@ -52,6 +52,10 @@ export default class ChartController {
      * @type Trade[]
      */
     this.queuedTrades = []
+
+    for (let prop in this) {
+      window[prop] = this[prop]
+    }
   }
 
   createChart(containerElement, chartDimensions) {
@@ -59,14 +63,14 @@ export default class ChartController {
 
     const options = Object.assign({}, defaultChartOptions, chartDimensions)
 
-    if (store.state.settings.series.price && store.state.settings.series.price.scaleMargins) {
-      options.priceScale.scaleMargins = store.state.settings.series.price.scaleMargins
-    }
-
     this.chartInstance = TV.createChart(containerElement, options)
     this.chartElement = containerElement
 
     this.addEnabledSeries()
+
+    if (store.state.settings.chartPriceScale && store.state.settings.chartPriceScale.scaleMargins) {
+      this.setPriceMargins(store.state.settings.chartPriceScale.scaleMargins)
+    }
   }
 
   /**
@@ -153,7 +157,7 @@ export default class ChartController {
    */
   setPriceMargins(margins) {
     this.chartInstance.applyOptions({
-      priceScale: {
+      rightPriceScale: {
         scaleMargins: margins
       }
     })
@@ -432,7 +436,7 @@ export default class ChartController {
     const serieType = serieOptions.type || seriesData[id].type
 
     const apiMethodName = 'add' + (serieType.charAt(0).toUpperCase() + serieType.slice(1)) + 'Series'
-
+    console.log(id, serieOptions)
     const serie = this.prepareSerie({
       id,
       type: serieType,
@@ -523,7 +527,7 @@ export default class ChartController {
   }
 
   getUTCVisibleRange() {
-    const visibleRange = this.chartInstance.timeScale().getVisibleLogicalRange()
+    const visibleRange = this.chartInstance.timeScale().getVisibleRange()
     const offset = store.state.settings.timezoneOffset / 1000
 
     return visibleRange
@@ -767,7 +771,7 @@ export default class ChartController {
 
       this.activeRenderer.exchanges[trade.exchange].hasData = true
 
-      const isActive = store.state.app.actives.indexOf(trade.exchange) !== -1
+      const isActive = store.state.settings.exchanges[trade.exchange].visible
 
       if (trade.liquidation) {
         this.activeRenderer.exchanges[trade.exchange]['l' + trade.side] += amount
@@ -986,7 +990,7 @@ export default class ChartController {
         }
       }
 
-      if (store.state.app.actives.indexOf(bar.exchange) === -1) {
+      if (!store.state.settings.exchanges[bar.exchange].visible) {
         continue
       }
 

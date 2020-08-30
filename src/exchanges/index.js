@@ -1,7 +1,7 @@
 import Kraken from '../exchanges/kraken'
 import KrakenFutures from '../exchanges/kraken_futures'
-/*import Bitmex from '../exchanges/bitmex'
-import Huobi from '../exchanges/huobi'
+import Bitmex from '../exchanges/bitmex'
+/*import Huobi from '../exchanges/huobi'
 import Binance from '../exchanges/binance'
 import Bitfinex from '../exchanges/bitfinex'
 import Bitstamp from '../exchanges/bitstamp'
@@ -13,4 +13,4 @@ import Deribit from '../exchanges/deribit'
 import Bybit from '../exchanges/bybit'
 import Ftx from '../exchanges/ftx'*/
 
-export default [new Kraken(), new KrakenFutures()]
+export default [new Bitmex(), new Kraken(), new KrakenFutures()]

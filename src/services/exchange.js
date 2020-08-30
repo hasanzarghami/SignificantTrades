@@ -405,8 +405,10 @@ class Exchange extends EventEmitter {
 
         resolve()
       } else {
-        if (forceRenew || typeof this.products === 'undefined') {
+        console.log('before fetch products', this.id, this.products)
+        if (forceRenew) {
           delete this.products
+        } else if (!this.products) {
           this.getStoredProducts()
         }
 

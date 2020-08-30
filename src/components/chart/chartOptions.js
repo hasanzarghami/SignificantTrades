@@ -41,8 +41,7 @@ export const defaultChartOptions = {
     timeVisible: true,
     secondsVisible: true
   },
-  priceScale: {
-    position: 'right',
+  rightPriceScale: {
     mode: 0,
     borderColor: 'rgba(255, 255, 255, .2)'
   }
@@ -65,7 +64,6 @@ export const defaultCandlestickOptions = {
     type: 'price',
     precision: 2
   },
-  overlay: false,
   borderVisible: false,
   upColor: '#c3a87a',
   downColor: '#e53935',
@@ -76,12 +74,7 @@ export const defaultCandlestickOptions = {
 export const defaultHistogramOptions = {
   color: '#c3a87a',
   lastValueVisible: false,
-  priceLineVisible: false,
-  overlay: true,
-  scaleMargins: {
-    top: 0.8,
-    bottom: 0
-  }
+  priceLineVisible: false
 }
 
 export const defaultPlotsOptions = {

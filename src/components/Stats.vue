@@ -19,10 +19,10 @@ import MultiCounter from '../utils/multiCounter'
 import { defaultChartOptions, defaultLineOptions } from './chart/chartOptions'
 
 const chartOptions = JSON.parse(JSON.stringify(defaultChartOptions))
-chartOptions.priceScale.position = 'none'
+chartOptions.rightPriceScale.position = 'none'
 chartOptions.timeScale.rightOffset = 0
 chartOptions.timeScale.secondsVisible = true
-chartOptions.priceScale.mode = 0
+chartOptions.rightPriceScale.mode = 0
 
 const lineOptions = JSON.parse(JSON.stringify(defaultLineOptions))
 lineOptions.overlay = true
@@ -214,6 +214,7 @@ export default {
         const visibleRange = getVisibleRange(chart, 1)
 
         if (visibleRange) {
+          const scrollPosition = chart.timeScale().scrollPosition()
           const countersSeries = counters.filter(a => a.serie).map(a => a.serie._series)
           const data = counters.map(() => [])
 
@@ -245,7 +246,8 @@ export default {
             }
 
             if (visibleRange) {
-              chart.timeScale().setVisibleLogicalRange(visibleRange)
+              chart.timeScale().scrollToPosition(scrollPosition)
+              chart.timeScale().setVisibleRange(visibleRange)
             }
           })
         }

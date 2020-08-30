@@ -18,10 +18,8 @@ export function ohlc(bar) {
   bar.low = 0
   bar.close = 0
 
-  const activeExchanges = store.state.app.actives
-
   for (let exchange in bar.exchanges) {
-    if (activeExchanges.indexOf(exchange) === -1) {
+    if (!store.state.settings.exchanges[exchange].visible) {
       continue
     }
 

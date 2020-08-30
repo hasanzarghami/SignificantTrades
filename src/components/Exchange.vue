@@ -77,11 +77,9 @@ export default {
   props: ['exchange'],
   computed: {
     state: function() {
-      console.log('get state', this)
       return store.state.app.exchanges[this.exchange.id]
     },
     settings: function() {
-      console.log('get settings', store.state.settings.exchanges)
       return store.state.settings.exchanges[this.exchange.id]
     },
     minimumThreshold: function() {
@@ -105,7 +103,7 @@ export default {
         this.canRefreshProducts = true
       }, 3000)
 
-      this.exchange.refreshProducts().then(() => {
+      this.exchange.fetchProducts(true).then(() => {
         this.$store.dispatch('app/showNotice', {
           type: 'success',
           title: `${this.exchange.id}'s products refreshed`

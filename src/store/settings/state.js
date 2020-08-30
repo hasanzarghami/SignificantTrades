@@ -1,5 +1,6 @@
 import { parseQueryString } from '../../utils/helpers'
 import { MASTER_DOMAIN } from '../../utils/constants'
+import extend from 'extend'
 import DEFAULTS from './defaults.json'
 import exchanges from '../../exchanges'
 
@@ -49,15 +50,19 @@ if (MASTER_DOMAIN) {
  * Default exchanges specific settings
  */
 EXTRA.exchanges = exchanges.reduce((state, exchange) => {
+  if (STORED.exchanges && STORED.exchanges[exchange.id]) {
+    return state
+  }
+
   state[exchange.id] = {
     enabled: true,
     visible: true,
-    active: true,
     threshold: 1
   }
 
   return state
 }, {})
+console.log('EXTRA exchanges', EXTRA.exchanges)
 
 // 20/06/20
 // exchange specific settings format changed again !
@@ -83,4 +88,4 @@ if (STORED.exchanges && STORED.exchanges.length) {
   }
 }
 
-export default Object.assign({}, DEFAULTS, EXTRA, STORED, QUERY_STRING)
+export default extend(true, {}, DEFAULTS, EXTRA, STORED, QUERY_STRING)

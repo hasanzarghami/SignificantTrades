@@ -19,6 +19,10 @@ export default class extends Exchange {
   }
 
   formatProducts(data) {
+    if (!this.products) {
+      return false
+    }
+
     return data.map(a => a.id)
   }
 

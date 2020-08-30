@@ -2,6 +2,7 @@ import Vue from 'vue'
 import App from './App.vue'
 import VueTippy from 'vue-tippy'
 import * as ModalDialogs from 'vue-modal-dialogs'
+import VJsoneditor from 'v-jsoneditor'
 import Verte from 'verte'
 import 'verte/dist/verte.css'
 import './assets/sass/app.scss'
@@ -16,6 +17,7 @@ for (let key in vueEnv) {
   }
 }
 
+Vue.use(VJsoneditor)
 Vue.use(ModalDialogs)
 
 Vue.use(VueTippy, {

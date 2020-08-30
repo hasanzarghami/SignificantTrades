@@ -171,10 +171,15 @@ export function slugify(string) {
     .replace(/-+$/, '') // Trim - from end of text
 }
 
-export function getVisibleRange(chartInstance) {
-  const visibleRange = chartInstance.timeScale().getVisibleLogicalRange()
+export const getVisibleRange = (chartInstance, timeframe) => {
+  const visibleRange = chartInstance.timeScale().getVisibleRange()
 
   if (visibleRange) {
+    const scrollPosition = chartInstance.timeScale().scrollPosition()
+    if (scrollPosition > 0) {
+      visibleRange.to = Math.floor((visibleRange.to + scrollPosition * timeframe) / timeframe) * timeframe
+    }
+
     return { from: visibleRange.from, to: visibleRange.to, median: visibleRange.from + (visibleRange.to - visibleRange.from) / 2 }
   }
 }

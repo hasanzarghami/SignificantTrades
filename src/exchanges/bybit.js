@@ -27,6 +27,10 @@ export default class extends Exchange {
   }
 
   getMatch(pair) {
+    if (!this.products) {
+      return
+    }
+
     if (this.products.indexOf(pair) !== -1) {
       return pair
     }

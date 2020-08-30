@@ -252,7 +252,7 @@ class Aggregator extends EventEmitter {
   setupAggrInterval() {
     console.log(`[socket] setup aggr interval`)
 
-    this._aggrInterval = setInterval(this.emitAggr.bind(this), 1000)
+    this._aggrInterval = setInterval(this.emitAggr.bind(this), 100)
   }
 
   clearAggrInterval() {
