@@ -67,10 +67,7 @@ const DEFAULTS = {
   influxTimeframe: 10000,
 
   // downsampling
-  influxResampleTo: [1000 * 30, 1000 * 60, 1000 * 60 * 3, 1000 * 60 * 5, 1000 * 60 * 15],
-
-  // preload continuous queries measurements (each influxResampleTo) with N ms of data on startup (default = 24h of data)
-  influxPreheatRange: 1000 * 60 * 60 * 24,
+  influxResampleTo: [1000 * 30, 1000 * 60, 1000 * 60 * 5, 1000 * 60 * 15, 1000 * 60 * 21, 1000 * 60 * 60, 1000 * 60 * 60 * 4, 1000 * 60 * 60 * 8, 1000 * 60 * 60 * 24],
 
   // create new text file every N ms when storage is set to "file" (default 1h)
   filesInterval: 3600000,

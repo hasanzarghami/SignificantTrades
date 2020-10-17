@@ -10,11 +10,13 @@ module.exports = {
   },
 
   getHms(timestamp, round) {
-    var h = Math.floor(timestamp / 1000 / 3600)
+    var d = Math.floor(timestamp / 1000 / 86400)
+    var h = Math.floor((timestamp / 1000 / 3600) % 24)
     var m = Math.floor(((timestamp / 1000) % 3600) / 60)
     var s = Math.floor(((timestamp / 1000) % 3600) % 60)
     var output = ''
 
+    output += (!round || !output.length) && d > 0 ? d + 'd' + (!round && h ? ', ' : '') : ''
     output += (!round || !output.length) && h > 0 ? h + 'h' + (!round && m ? ', ' : '') : ''
     output += (!round || !output.length) && m > 0 ? m + 'm' + (!round && s ? ', ' : '') : ''
     output += (!round || !output.length) && s > 0 ? s + 's' : ''
