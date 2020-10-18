@@ -244,7 +244,7 @@ class Okex extends Exchange {
       .then(response => {
         if (!this.apis.length || !response.data || (response.data.error && response.data.error.length)) {
           console.log('getLiquidations => then => contain error(s)')
-          this.emitError(new Error(response.data.error.join('\n')))
+          console.error(response.data.error.join('\n'), productType, productId)
           return
         }
 
@@ -264,7 +264,7 @@ class Okex extends Exchange {
         this.emitLiquidations(this.apis[0].id, 
           liquidations.map(trade => {
             const timestamp = +new Date(trade.created_at)
-            const size = (trade.size * this.specs[productId]) / trade.price
+            const size = +((trade.size * this.specs[productId]) / trade.price).toFixed(8)
 
             return {
               exchange: this.id + '_futures', 
@@ -284,8 +284,6 @@ class Okex extends Exchange {
           console.log('axios.isCancel');
           return
         }
-
-        this.emitError(error)
 
         return error
       })

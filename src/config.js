@@ -1,5 +1,6 @@
 const fs = require('fs')
 const path = require('path')
+const decamelize = require('decamelize')
 
 console.log(`[init] reading config.json...`)
 
@@ -38,7 +39,7 @@ const DEFAULTS = {
   origin: '.*',
 
   // max n of bars a user can get in 1 call
-  maxFetchLength: 1000,
+  maxFetchLength: 100000,
 
   // admin access type (whitelist, all, none)
   admin: 'whitelist',
@@ -76,19 +77,7 @@ const DEFAULTS = {
   influxTimeframe: 10000,
 
   // downsampling
-  influxResampleTo: [
-    1000 * 30,
-    1000 * 60,
-    1000 * 60 * 5,
-    1000 * 60 * 15,
-    1000 * 60 * 30,
-    1000 * 60 * 60 * 2,
-    1000 * 60 * 60 * 4,
-    1000 * 60 * 60 * 24,
-  ],
-
-  // preload continuous queries measurements (each influxResampleTo) with N ms of data on startup (default = 24h of data)
-  influxPreheatRange: 1000 * 60 * 60 * 24,
+  influxResampleTo: [1000 * 30, 1000 * 60, 1000 * 60 * 5, 1000 * 60 * 15, 1000 * 60 * 21, 1000 * 60 * 60, 1000 * 60 * 60 * 4, 1000 * 60 * 60 * 8, 1000 * 60 * 60 * 24],
 
   // create new text file every N ms when storage is set to "file" (default 1h)
   filesInterval: 3600000,
@@ -96,8 +85,17 @@ const DEFAULTS = {
   // default place to store the trades data files
   filesLocation: './data',
 
-  // reconnect exchange api if no data received since n ms (default 1m)
-  reconnectionThreshold: 1000 * 60,
+  // reconnect exchange api if no data received since n ms (default 10m)
+  reconnectionThreshold: 1000 * 60 * 10,
+
+  // choose whether or not enable rate limiting on the provided api
+  enableRateLimit: false,
+
+  // rate limit time window (default 15m)
+  rateLimitTimeWindow: 1000 * 60 * 15,
+
+  // rate limit max request per rateLimitTimeWindow (default 30)
+  rateLimitMax: 30,
 }
 
 /* Load custom server configuration
@@ -121,6 +119,19 @@ try {
  */
 
 config = Object.assign(DEFAULTS, config)
+
+/* Override config with ENV variables using decamelize + uppercase 
+  (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
+ */
+
+Object.keys(config).forEach(k => {
+  config_to_env_key = decamelize(k, "_").toUpperCase()
+  config_env_value = process.env[config_to_env_key]
+  if (config_env_value) {
+    config[k] = config_env_value
+    console.log(`overriding '${k}' to '${config_env_value}' via env '${config_to_env_key}'`)
+  }
+})
 
 /* Node arg based configuration
  */
@@ -172,7 +183,7 @@ if (config.storage) {
  */
 
 if (config.pair) {
-  config.pairs = config.pair.split(',')
+  config.pairs = Array.isArray(config.pair) ? config.pair : config.pair.split(',')
   delete config.pair
 }
 

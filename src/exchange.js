@@ -132,10 +132,10 @@ class Exchange extends EventEmitter {
 
     console.debug(`[${this.id}] linking ${pair}`)
 
-    return this.bindApi(pair).then((api) => {
+    return this.bindApi(pair).then(async (api) => {
       this.emit('match', pair, match, api.id)
 
-      this.subscribe(api, pair)
+      await this.subscribe(api, pair)
 
       return api
     })
@@ -146,7 +146,7 @@ class Exchange extends EventEmitter {
    * @param {string} pair
    * @returns {Promise<void>}
    */
-  unlink(pair) {
+  async unlink(pair) {
     const api = this.getActiveApiByPair(pair)
 
     if (!this.match[pair] || this.pairs.indexOf(this.match[pair]) === -1) {
@@ -164,7 +164,7 @@ class Exchange extends EventEmitter {
     console.debug(`[${this.id}] unlinking ${pair}`)
 
     // call exchange specific unsubscribe function
-    this.unsubscribe(api, pair)
+    await this.unsubscribe(api, pair)
 
     this.emit('unmatch', pair, this.match[pair], api.id)
 
@@ -221,6 +221,11 @@ class Exchange extends EventEmitter {
 
       api._send = api.send
       api.send = (data) => {
+        if (api.readyState !== WebSocket.OPEN) {
+          console.error(`[${this.id}] attempted to send data to an non-OPEN websocket api`, data)
+          return
+        }
+
         if (!/ping|pong/.test(data)) {
           console.debug(
             `[${this.id}] sending ${data.substr(0, 64)}${
@@ -252,7 +257,7 @@ class Exchange extends EventEmitter {
         this.onOpen(event, api._pairs)
       }
 
-      api.onclose = (event) => {
+      api.onclose = async (event) => {
         if (this.connecting[url]) {
           this.connecting[url].resolver(false)
           delete this.connecting[url]
@@ -272,16 +277,18 @@ class Exchange extends EventEmitter {
             `[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`
           )
 
-          Promise.all(api._pairs.map((pair) => this.unlink(pair))).then(() => {
-            const delay = this.reconnectionDelay[api.url] || 0
+          for (let pair of api._pairs) {
+            await this.unlink(pair)
+          }
 
-            setTimeout(() => {
-              this.reconnectPairs(pairsToReconnect)
-            }, delay)
+          const delay = this.reconnectionDelay[api.url] || 0
 
-            this.reconnectionDelay[api.url] = Math.min(1000 * 30, (delay || 1000) * 1.5)
-            console.debug(`[${this.id}] increment reconnection delay (${url}) = ${getHms(this.reconnectionDelay[api.url])}`)
-          })
+          setTimeout(() => {
+            this.reconnectPairs(pairsToReconnect)
+          }, delay)
+
+          this.reconnectionDelay[api.url] = Math.min(1000 * 30, (delay || 1000) * 1.5)
+          console.debug(`[${this.id}] increment reconnection delay (${url}) = ${getHms(this.reconnectionDelay[api.url])}`)
         }
       }
 
@@ -365,14 +372,20 @@ class Exchange extends EventEmitter {
    * @param {string[]} pairs (local)
    * @returns {Promise<any>}
    */
-  reconnectPairs(pairs) {
+  async reconnectPairs(pairs) {
     const pairsToReconnect = pairs.slice(0, pairs.length)
 
     console.debug(`[${this.id}] reconnect pairs ${pairsToReconnect.join(',')}`)
 
-    Promise.all(pairsToReconnect.map((pair) => this.unlink(pair))).then(() => {
-      return Promise.all(pairsToReconnect.map((pair) => this.link(pair)))
-    })
+    for (let pair of pairsToReconnect) {
+      await this.unlink(pair)
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    for (let pair of pairsToReconnect) {
+      await this.link(pair)
+    }
   }
 
   /**

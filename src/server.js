@@ -132,14 +132,6 @@ class Server extends EventEmitter {
         this.updateIps.bind(this),
         1000 * 60
       )
-
-      if (this.options.api) {
-        setTimeout(() => {
-          console.log(`[server] Fetch API unlocked`)
-
-          this.lockFetch = false
-        }, 1000 * 60)
-      }
     })
   }
 
@@ -264,6 +256,12 @@ class Server extends EventEmitter {
 
       exchange.on('unmatch', (localPair, remotePair, source) => {
         if (this.matchs[source + remotePair]) {
+          console.log(
+            `[server] received unmatch event from ${
+              exchange.id
+            }\n\t-> delete source ${source + remotePair}`,
+            { localPair, remotePair, source }
+          )
           delete this.matchs[source + remotePair]
         }
       })
@@ -330,7 +328,9 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(this.matchs).map((a) => a.mapped),
+        supportedPairs: Object.values(this.matchs)
+          .map((a) => a.mapped)
+          .filter((v, i, a) => a.indexOf(v) === i),
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -424,23 +424,23 @@ class Server extends EventEmitter {
   createHTTPServer() {
     const app = express()
 
-    const limiter = rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 30,
-      handler: function (req, res) {
-        return res.status(429).json({
-          error: 'too many requests :v',
-        })
-      },
-    })
+    if (this.options.enableRateLimit) {
+      const limiter = rateLimit({
+        windowMs: this.options.rateLimitTimeWindow,
+        max: this.options.rateLimitMax,
+        handler: function (req, res) {
+          return res.status(429).json({
+            error: 'too many requests :v',
+          })
+        },
+      })
 
-    app.set('trust proxy', 1)
+      // otherwise ip are all the same
+      app.set('trust proxy', 1)
 
-    // otherwise ip are all the same
-    app.set('trust proxy', 1)
-
-    // apply to all requests
-    app.use(limiter)
+      // apply to all requests
+      app.use(limiter)
+    }
 
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
@@ -519,7 +519,7 @@ class Server extends EventEmitter {
             .split('+')
             .map((a) => a.trim())
             .filter((a) => a.length)
-          
+
           for (let pair of pairs) {
             if (!/^[A-Z_\-+]+$/.test(pair)) {
               return res.status(400).json({
@@ -532,7 +532,7 @@ class Server extends EventEmitter {
             }
           }
         }
-        
+
         if (!pairs.length) {
           pairs = ['BTCUSD', 'BTCUSDT']
         }
@@ -544,16 +544,6 @@ class Server extends EventEmitter {
         }
 
         const storage = this.storages[0]
-
-        if (this.lockFetch) {
-          setTimeout(() => {
-            return res.status(425).json({
-              error: 'try again',
-            })
-          }, Math.random() * 5000)
-
-          return
-        }
 
         if (isNaN(from) || isNaN(to)) {
           return res.status(400).json({
@@ -710,30 +700,24 @@ class Server extends EventEmitter {
    * @returns {Promise<any>} promises of connections
    * @memberof Server
    */
-  connectPairs(pairs) {
+  async connectPairs(pairs) {
     console.log(`[server] connect to ${pairs.join(',')}`)
-
-    const promises = []
 
     for (let exchange of this.exchanges) {
       for (let pair of pairs) {
-        promises.push(
-          exchange.link(pair).catch((err) => {
-            console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
+        try {
+          await exchange.link(pair)
+        } catch (err) {
+          console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
 
-            if (err instanceof Error) {
-              console.error(err)
-            }
-          })
-        )
+          if (err instanceof Error) {
+            console.error(err)
+          }
+        }
       }
     }
 
-    if (promises.length) {
-      return Promise.all(promises).then(() => this.dumpConnections())
-    } else {
-      return Promise.resolve()
-    }
+    this.dumpConnections()
   }
 
   /**
@@ -742,10 +726,8 @@ class Server extends EventEmitter {
    * @returns {Promise<void>} promises of disconnection
    * @memberof Server
    */
-  disconnectPairs(pairs) {
+  async disconnectPairs(pairs) {
     console.log(`[server] disconnect from ${pairs.join(',')}`)
-
-    const promises = []
 
     for (let exchange of this.exchanges) {
       for (let pair of pairs) {
@@ -753,23 +735,19 @@ class Server extends EventEmitter {
           continue
         }
 
-        promises.push(
-          exchange.unlink(pair).catch((err) => {
-            console.debug(`[server/disconnectPairs/${exchange.id}] ${err}`)
+        try {
+          await exchange.unlink(pair)
+        } catch (err) {
+          console.debug(`[server/disconnectPairs/${exchange.id}] ${err}`)
 
-            if (err instanceof Error) {
-              console.error(err)
-            }
-          })
-        )
+          if (err instanceof Error) {
+            console.error(err)
+          }
+        }
       }
     }
 
-    if (promises.length) {
-      return Promise.all(promises).then(() => this.dumpConnections())
-    } else {
-      return Promise.resolve()
-    }
+    this.dumpConnections()
   }
 
   broadcastJson(data) {
@@ -805,7 +783,7 @@ class Server extends EventEmitter {
   }
 
   monitorExchangesActivity() {
-    this.dumpConnections()
+    // this.dumpConnections()
 
     const now = +new Date()
 
@@ -833,14 +811,17 @@ class Server extends EventEmitter {
     }
 
     for (let source in activity) {
-      const avg =
-        activity[source].reduce((sum, a) => sum + a, 0) /
-        activity[source].length
+      const min = activity[source].length
+        ? Math.min.apply(null, activity[source])
+        : 0
 
-      if (avg > this.options.reconnectionThreshold) {
+      if (min > this.options.reconnectionThreshold) {
+        // one of the feed did not received any data since 1m or more
+        // => reconnect api (and all the feed binded to it)
+
         console.log(
           `[warning] api ${source} reached reconnection threshold ${getHms(
-            avg
+            min
           )} > ${getHms(
             this.options.reconnectionThreshold
           )}\n\t-> reconnect ${pairs[source].join(', ')}`
@@ -984,7 +965,8 @@ class Server extends EventEmitter {
       const identifier = source + trade.pair
 
       if (!this.matchs[identifier]) {
-        console.err(`UNKNOWN TRADE SOURCE`, trade)
+        console.error(`UNKNOWN TRADE SOURCE`, trade)
+        console.info('This trade will be ignored.')
         continue
       }
 

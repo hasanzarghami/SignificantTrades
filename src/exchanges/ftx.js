@@ -92,6 +92,7 @@ class Ftx extends Exchange {
 
   onMessage(event, api) {
     const json = JSON.parse(event.data)
+    
     if (!json || !json.data || !json.data.length) {
       return
     }

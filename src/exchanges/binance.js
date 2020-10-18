@@ -84,6 +84,9 @@ class Binance extends Exchange {
         id: this.subscriptions[pair],
       })
     )
+    
+    // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
+    return new Promise(resolve => setTimeout(resolve, 250))
   }
 
   /**
@@ -111,6 +114,9 @@ class Binance extends Exchange {
     )
 
     delete this.subscriptions[pair]
+    
+    // BINANCE: WebSocket connections have a limit of 5 incoming messages per second.
+    return new Promise(resolve => setTimeout(resolve, 250))
   }
 
   onMessage(event, api) {
@@ -136,7 +142,7 @@ class Binance extends Exchange {
             exchange: this.id + '_futures',
             pair: json.o.s.toLowerCase(),
             timestamp: json.o.T,
-            price: price,
+            price: +json.o.p,
             size: +json.o.q,
             side: json.o.S === 'BUY' ? 'buy' : 'sell',
             liquidation: true,

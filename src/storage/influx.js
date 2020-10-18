@@ -22,11 +22,11 @@ class InfluxStorage {
 
     this.influx = new Influx.InfluxDB({
       host: this.options.influxUrl,
-      database: this.options.influxDatabase
+      database: this.options.influxDatabase,
     })
 
     const databases = await this.influx.getDatabaseNames()
-    
+
     if (!databases.includes('significant_trades')) {
       await this.influx.createDatabase('significant_trades')
     }
@@ -40,11 +40,6 @@ class InfluxStorage {
         promisesOfReferences.push(this.getReferencePoint(exchange, pair))
       }
     } */
-
-    
-    if (this.options.api) {
-      await this.setupResampling()
-    }
   }
 
   /**
@@ -52,95 +47,92 @@ class InfluxStorage {
    *
    * @memberof InfluxStorage
    */
-  async setupResampling() {
-    let from
-    let into
-
-    const range = {
-      to: +new Date()
-    }
-
-    range.from = range.to - this.options.influxPreheatRange
+  async resample(range) {
+    let sourceTimeframe
+    let destinationTimeframe
 
     this.options.influxResampleTo.sort((a, b) => a - b)
 
-    let cq_created = []
-    
     for (let timeframe of this.options.influxResampleTo) {
-      if (!from) {
-        from = getHms(this.options.influxTimeframe)
-      } else {
-        from = into
+      const flooredRange = {
+        from: Math.floor(range.from / timeframe) * timeframe,
+        to: Math.floor(range.to / timeframe) * timeframe + timeframe,
       }
 
-      into = getHms(timeframe)
+      for (
+        let i = this.options.influxResampleTo.indexOf(timeframe);
+        i >= 0;
+        i--
+      ) {
+        if (
+          timeframe <= this.options.influxResampleTo[i] ||
+          timeframe % this.options.influxResampleTo[i] !== 0
+        ) {
+          if (i === 0) {
+            sourceTimeframe = getHms(this.options.influxTimeframe)
+          }
+          continue
+        }
+
+        sourceTimeframe = getHms(this.options.influxResampleTo[i])
+        break
+      }
+
+      destinationTimeframe = getHms(timeframe)
 
       const query = `SELECT min(low) AS low, 
       max(high) AS high, 
       first(open) AS open, 
       last(close) AS close, 
       sum(count) AS count, 
-      sum(count_buy) AS count_buy, 
-      sum(count_sell) AS count_sell, 
-      sum(liquidation_buy) AS liquidation_buy, 
-      sum(liquidation_sell) AS liquidation_sell, 
+      sum(cbuy) AS cbuy, 
+      sum(csell) AS csell, 
+      sum(lbuy) AS lbuy, 
+      sum(lsell) AS lsell, 
       sum(vol) AS vol, 
-      sum(vol_buy) AS vol_buy, 
-      sum(vol_sell) AS vol_sell`
+      sum(vbuy) AS vbuy, 
+      sum(vsell) AS vsell`
 
-      const query_from = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${from}`
-      const query_into = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${into}`
+      const query_from = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${sourceTimeframe}`
+      const query_into = `${this.options.influxDatabase}.autogen.${this.options.influxMeasurement}_${destinationTimeframe}`
+      const coverage = `WHERE time > ${flooredRange.from}ms AND time < ${flooredRange.to}ms`
+      const group = `GROUP BY time(${destinationTimeframe}), exchange, pair fill(none)`
 
-      const group = `GROUP BY time(${into}), exchange, pair fill(none)`
-
-      const cq_query = `
-        CREATE CONTINUOUS QUERY cq_${into} ON ${this.options.influxDatabase} 
-        RESAMPLE FOR ${getHms(timeframe * 2)} 
-        BEGIN 
-          ${query} INTO ${query_into} FROM ${query_from} ${group}
-        END
-      `
-      try {
-        await this.influx.query(cq_query)
-      } catch (error) {
-        console.error(`[influx] failed to create cq query`, error);
-      }
-    }
-
-    cq_created = this.options.influxResampleTo
-      .filter((a, i) => typeof cq_created[i] !== 'undefined')
-      .map((a) => getHms(a))
-
-    if (cq_created.length) {
-      console.log(
-        `[storage/${this.name}] successfully created ${
-          this.options.influxResampleTo.length
-        } continuous queries\n\ttimeframes: ${cq_created.join(', ')}`
-      )
-    }
-
-    const cqs = await this.influx.query(`SHOW CONTINUOUS QUERIES`)
-
-    if (cqs) {
-      console.log(
-        `[storage/${this.name}] ${cqs.length} active continuous queries\n\t-> ${cqs
-          .map((a) => a.name)
-          .join(', ')}`
-      )
+      await this.influx
+        .query(
+          `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
+        )
+        .then((res) => {
+          /*console.log(
+            `${sourceTimeframe} => ${destinationTimeframe} (from ${new Date(
+              flooredRange.from
+            ).toLocaleTimeString()} to ${new Date(
+              flooredRange.to
+            ).toLocaleTimeString()})`
+          )*/
+        })
+        .catch((err) => {
+          debugger
+          console.log(err)
+        })
     }
   }
 
-  
   getPreviousCloses() {
     this.influx
-      .query(`SELECT close FROM ${this.options.influxMeasurement}${this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''} GROUP BY "exchange", "pair" ORDER BY time DESC LIMIT 1`)
+      .query(
+        `SELECT close FROM ${this.options.influxMeasurement}${
+          this.options.influxTimeframe
+            ? '_' + getHms(this.options.influxTimeframe)
+            : ''
+        } GROUP BY "exchange", "pair" ORDER BY time DESC LIMIT 1`
+      )
       .then((data) => {
         for (let bar of data) {
           this.lastClose[bar.exchange + bar.pair] = bar.close
         }
-      });
+      })
   }
-
 
   /**
    * Trigger when save fired from main controller
@@ -149,18 +141,29 @@ class InfluxStorage {
    * @returns {Promise<any>}
    * @memberof InfluxStorage
    */
-  save(trades) {
+  async save(trades) {
     if (!trades || !trades.length) {
       return Promise.resolve()
     }
 
-    const groups = groupByPairs(trades);
+    const groups = groupByPairs(trades)
+    const resampleRange = {
+      from: Infinity,
+      to: 0,
+    }
 
-    return Promise.all(Object.keys(groups).map(pair => this.import(groups[pair], pair)))
+    for (let pair in groups) {
+      const { from, to } = await this.import(groups[pair], pair)
+
+      resampleRange.from = Math.min(from, resampleRange.from)
+      resampleRange.to = Math.max(to, resampleRange.to)
+    }
+
+    await this.resample(resampleRange)
   }
 
   /**
-   * Import the trades to influx db 
+   * Import the trades to influx db
    *
    * @param {Trade[]} trades
    * @param {*} pair
@@ -172,13 +175,18 @@ class InfluxStorage {
     let bars = []
 
     // array of liquidations
-    let liquidations = [];
+    let liquidations = []
 
     // current bar ({} of exchanges)
     let bar = {}
 
     // current time
     let barTs = 0
+
+    const resampleRange = {
+      from: Infinity,
+      to: 0,
+    }
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
@@ -187,10 +195,15 @@ class InfluxStorage {
       // trade timestamp floored to timeframe
       if (trade) {
         if (trade.liquidation) {
-          liquidations.push(trade);
+          liquidations.push(trade)
         }
 
-        tradeTs = Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
+        tradeTs =
+          Math.floor(trade.timestamp / this.options.influxTimeframe) *
+          this.options.influxTimeframe
+
+        resampleRange.from = Math.min(tradeTs, resampleRange.from)
+        resampleRange.to = Math.max(tradeTs, resampleRange.to)
       }
 
       if (!trade || tradeTs > barTs) {
@@ -198,6 +211,7 @@ class InfluxStorage {
           this.lastBar[exchange + pair] = bar[exchange]
 
           if (typeof bar[exchange].close === 'number') {
+            // reg close for next bar
             this.lastClose[exchange + pair] = bar[exchange].close
           }
 
@@ -212,11 +226,14 @@ class InfluxStorage {
         barTs = tradeTs
       }
 
-      const exchange = trade.exchange;
-      const identifier = exchange + pair;
+      const exchange = trade.exchange
+      const identifier = exchange + pair
 
       if (!bar[exchange]) {
-        if (this.lastBar[identifier] && this.lastBar[identifier].time === tradeTs) {
+        if (
+          this.lastBar[identifier] &&
+          this.lastBar[identifier].time === tradeTs
+        ) {
           // trades passed in save() contains some of the last batch (trade time = last bar time)
           // recover exchange point of lastbar
           bar[exchange] = this.lastBar[identifier]
@@ -232,9 +249,9 @@ class InfluxStorage {
             lbuy: 0,
             lsell: 0,
             open: null,
-            high: 0,
-            low: Infinity,
-            close: null
+            high: null,
+            low: null,
+            close: null,
           }
 
           if (typeof this.lastClose[identifier] === 'number') {
@@ -251,117 +268,122 @@ class InfluxStorage {
         bar[exchange]['l' + trade.side] += trade.price * trade.size
       } else {
         if (bar[exchange].open === null) {
-          // is a new bar, and
-          bar[exchange].open = +trade.price
+          // new bar without close in db, should only happen once
+          console.log(`[influx] register new serie ${exchange}:${pair}`)
+          bar[exchange].open = bar[exchange].high = bar[exchange].low = bar[
+            exchange
+          ].close = +trade.price
         }
-  
+
         bar[exchange].high = Math.max(bar[exchange].high, +trade.price)
         bar[exchange].low = Math.min(bar[exchange].low, +trade.price)
         bar[exchange].close = +trade.price
-  
+
         bar[exchange]['c' + trade.side]++
         bar[exchange]['v' + trade.side] += trade.price * trade.size
       }
     }
 
-    const promises = [];
+    const promises = []
 
     if (bars.length) {
-      promises.push(this.influx
-      .writePoints(
-        bars.map((chunk, index) => {
-          const fields = {
-            cbuy: chunk.cbuy,
-            csell: chunk.csell,
-            vbuy: chunk.vbuy,
-            vsell: chunk.vsell,
-            lbuy: chunk.lbuy,
-            lsell: chunk.lsell
-          }
-
-          if (chunk.close !== null) {
-            ;(fields.open = chunk.open),
-              (fields.high = chunk.high),
-              (fields.low = chunk.low),
-              (fields.close = chunk.close)
-          }
-
-          return {
-            measurement:
-              'trades' +
-              (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
-            tags: {
-              exchange: chunk.exchange,
-              pair: pair
-            },
-            fields: fields,
-            timestamp: +chunk.time
-          }
-        }),
-        {
-          precision: 'ms'
-        }
-      )
-      .catch((err) => {
-        console.error('influx write failed (bars)', err.message)
-      }))
-    }
-
-    if (liquidations.length) {
-      promises.push(this.influx
-        .writePoints(
-          liquidations.map((trade, index) => {
+      promises.push(
+        this.influx.writePoints(
+          bars.map((chunk, index) => {
             const fields = {
-              size: +trade.price,
-              price: +trade.size,
-              side: trade[4] == 1 ? 'buy' : 'sell',
+              cbuy: chunk.cbuy,
+              csell: chunk.csell,
+              vbuy: chunk.vbuy,
+              vsell: chunk.vsell,
+              lbuy: chunk.lbuy,
+              lsell: chunk.lsell,
             }
-  
+
+            if (chunk.close !== null) {
+              ;(fields.open = chunk.open),
+                (fields.high = chunk.high),
+                (fields.low = chunk.low),
+                (fields.close = chunk.close)
+            }
+
+            if (chunk.high < chunk.open || chunk.high < chunk.close) {
+              console.log('inside high', chunk.high, chunk)
+            }
+            if (chunk.low > chunk.open || chunk.low > chunk.close) {
+              console.log('inside low', chunk.low, chunk)
+            }
+
             return {
-              measurement: 'liquidations',
+              measurement:
+                'trades' +
+                (this.options.influxTimeframe
+                  ? '_' + getHms(this.options.influxTimeframe)
+                  : ''),
               tags: {
-                exchange: trade.exchange,
-                pair: pair
+                exchange: chunk.exchange,
+                pair: pair,
               },
               fields: fields,
-              timestamp: +trade.timestamp
+              timestamp: +chunk.time,
             }
           }),
           {
-            precision: 'ms'
+            precision: 'ms',
           }
         )
-        .catch((err) => {
-          console.error('influx write failed (liquidation)', err.message)
-        }))
+      )
     }
 
-    return Promise.all(promises);
+    if (liquidations.length) {
+      promises.push(
+        this.influx
+          .writePoints(
+            liquidations.map((trade, index) => {
+              const fields = {
+                size: +trade.price,
+                price: +trade.size,
+                side: trade[4] == 1 ? 'buy' : 'sell',
+              }
+
+              return {
+                measurement: 'liquidations',
+                tags: {
+                  exchange: trade.exchange,
+                  pair: pair,
+                },
+                fields: fields,
+                timestamp: +trade.timestamp,
+              }
+            })
+          )
+          .catch((err) => {
+            console.error('influx write failed (liquidation)', err.message)
+          })
+      )
+    }
+
+    return Promise.all(promises).then(() => ({
+      ...resampleRange,
+    }))
   }
 
-  fetch({from, to, timeframe = 60000, exchanges = [], pairs}) {
+  fetch({ from, to, timeframe = 60000, exchanges = [], pairs }) {
     const timeframeText = getHms(timeframe)
-    
-    let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`;
+
+    let query = `SELECT * FROM "${this.options.influxDatabase}"."autogen"."trades_${timeframeText}" WHERE time >= ${from}ms AND time < ${to}ms`
 
     if (pairs.length) {
-      query += ` AND pair =~ /${pairs.join(
-        '|'
-      )}/`
+      query += ` AND pair =~ /${pairs.join('|')}/`
     }
 
     if (exchanges.length) {
-      query += ` AND exchange =~ /${exchanges.join(
-        '|'
-      )}/`
+      query += ` AND exchange =~ /${exchanges.join('|')}/`
     }
 
     return this.influx
-      .query(query,
-        {
-          precision: 's'
-        }
-      )
+      .query(query, {
+        precision: 's',
+      })
       .catch((err) => {
         console.error(
           `[storage/${this.name}] failed to retrieves trades between ${from} and ${to} with timeframe ${timeframe}\n\t`,
