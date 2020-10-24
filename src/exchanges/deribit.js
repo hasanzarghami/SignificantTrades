@@ -44,7 +44,7 @@ class Deribit extends Exchange {
     return data.result.reduce((output, product) => {
       output[
         product.settlement === 'perpetual'
-          ? product.baseCurrency + product.currency
+          ? product.baseCurrency + product.currency + '-PERPETUAL'
           : product.instrumentName
       ] = product.instrumentName
       return output
@@ -122,6 +122,14 @@ class Deribit extends Exchange {
         return trade
       })
     )
+  }
+
+  onApiBinded(api) {
+    this.startKeepAlive(api, { action: '/api/v1/public/ping' }, 45000)
+  }
+
+  onApiUnbinded(api) {
+    this.stopKeepAlive(api)
   }
 }
 

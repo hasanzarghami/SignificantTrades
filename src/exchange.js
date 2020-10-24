@@ -255,8 +255,8 @@ class Exchange extends EventEmitter {
           let json
 
           try {
-            if (event instanceof String) {
-              json = JSON.parse(event)
+            if (event.data instanceof String) {
+              json = JSON.parse(event.data)
             } else {
               json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
             }
