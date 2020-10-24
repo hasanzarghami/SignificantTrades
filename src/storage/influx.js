@@ -27,19 +27,13 @@ class InfluxStorage {
 
     const databases = await this.influx.getDatabaseNames()
 
-    if (!databases.includes('significant_trades')) {
-      await this.influx.createDatabase('significant_trades')
+    console.log(databases);
+
+    if (!databases.includes(this.options.influxDatabase)) {
+      await this.influx.createDatabase(this.options.influxDatabase)
     }
 
     await this.getPreviousCloses()
-
-    /* const exchanges = await this.getStoredExchanges()
-
-    for (let exchange of this.options.exchanges) {
-      for (let pair of this.options.pairs) {
-        promisesOfReferences.push(this.getReferencePoint(exchange, pair))
-      }
-    } */
   }
 
   /**
