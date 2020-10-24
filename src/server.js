@@ -10,6 +10,7 @@ const {
   ago,
 } = require('./helper')
 const express = require('express')
+const path = require('path')
 const rateLimit = require('express-rate-limit')
 
 class Server extends EventEmitter {
@@ -51,7 +52,6 @@ class Server extends EventEmitter {
      */
     this.aggregated = []
 
-    this.ADMIN_IPS = []
     this.BANNED_IPS = []
 
     this.initStorages().then(() => {
@@ -97,8 +97,8 @@ class Server extends EventEmitter {
 */
         // profile exchanges connections (keep alive)
         this._activityMonitoringInterval = setInterval(
-          this.monitorExchangesActivity.bind(this),
-          1000 * 60
+          this.monitorExchangesActivity.bind(this, +new Date()),
+          this.options.reconnectionThreshold / 10
         )
 
         if (this.storages) {
@@ -127,11 +127,8 @@ class Server extends EventEmitter {
         }
       }
 
-      // update admin & banned ip
-      this._updateIpsInterval = setInterval(
-        this.updateIps.bind(this),
-        1000 * 60
-      )
+      // update banned ip
+      this.listenBannedIps()
     })
   }
 
@@ -256,12 +253,6 @@ class Server extends EventEmitter {
 
       exchange.on('unmatch', (localPair, remotePair, source) => {
         if (this.matchs[source + remotePair]) {
-          console.log(
-            `[server] received unmatch event from ${
-              exchange.id
-            }\n\t-> delete source ${source + remotePair}`,
-            { localPair, remotePair, source }
-          )
           delete this.matchs[source + remotePair]
         }
       })
@@ -278,7 +269,7 @@ class Server extends EventEmitter {
           local: localPair,
           mapped: mapPair(localPair),
           hit: 0,
-          timestamp: null,
+          timestamp: +new Date(),
         }
       })
 
@@ -340,12 +331,8 @@ class Server extends EventEmitter {
         }),
       }
 
-      if ((ws.admin = this.isAdmin(ip))) {
-        data.admin = true
-      }
-
       console.log(
-        `[${ip}/ws${ws.admin ? '/admin' : ''}/${ws.pairs.join('+')}] joined ${
+        `[${ip}/ws/${ws.pairs.join('+')}] joined ${
           req.url
         } from ${req.headers['origin']}`
       )
@@ -365,7 +352,7 @@ class Server extends EventEmitter {
           : []
 
         console.log(
-          `[${ip}/ws${ws.admin ? '/admin' : ''}] subscribe to ${pairs.join(
+          `[${ip}/ws] subscribe to ${pairs.join(
             ' + '
           )}`
         )
@@ -646,7 +633,7 @@ class Server extends EventEmitter {
           local: match.local,
           mapped: match.mapped,
           hit: match.hit,
-          ping: match.timestamp ? ago(match.timestamp) : 'never',
+          ping: match.hit ? ago(match.timestamp) : 'never',
         }
       }
 
@@ -703,19 +690,23 @@ class Server extends EventEmitter {
   async connectPairs(pairs) {
     console.log(`[server] connect to ${pairs.join(',')}`)
 
+    const promises = []
+
     for (let exchange of this.exchanges) {
       for (let pair of pairs) {
-        try {
-          await exchange.link(pair)
-        } catch (err) {
-          console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
+        promises.push(
+          exchange.link(pair).catch((err) => {
+            console.debug(`[server/connectPairs/${exchange.id}] ${err}`)
 
-          if (err instanceof Error) {
-            console.error(err)
-          }
-        }
+            if (err instanceof Error) {
+              console.error(err)
+            }
+          })
+        )
       }
     }
+
+    await Promise.all(promises)
 
     this.dumpConnections()
   }
@@ -782,10 +773,16 @@ class Server extends EventEmitter {
     })
   }
 
-  monitorExchangesActivity() {
-    // this.dumpConnections()
-
+  monitorExchangesActivity(startedAt) {
     const now = +new Date()
+    const schedule = this.options.reconnectionThreshold / 10
+
+    if (
+      !(Math.round((now - startedAt) / schedule) * schedule) %
+      this.options.reconnectionThreshold
+    ) {
+      this.dumpConnections()
+    }
 
     const sources = []
     const activity = {}
@@ -799,13 +796,7 @@ class Server extends EventEmitter {
         pairs[match.source] = []
       }
 
-      if (!match.hit) {
-        console.log(
-          `[warning] 0 hit for ${match.exchange}:${match.remote} (warning)`
-        )
-      } else if (match.timestamp) {
-        activity[match.source].push(now - match.timestamp)
-      }
+      activity[match.source].push(now - match.timestamp)
 
       pairs[match.source].push(match.remote)
     }
@@ -842,39 +833,58 @@ class Server extends EventEmitter {
     }
   }
 
-  isAdmin(ip) {
-    if (
-      this.options.admin === 'all' ||
-      ['localhost', '127.0.0.1', '::1'].indexOf(ip) !== -1
-    ) {
-      return true
+  listenBannedIps() {
+    const file = path.resolve(__dirname, '../banned.txt')
+
+    const watch = () => {
+      fs.watchFile(file, () => {
+        this.updateBannedIps()
+      })
     }
 
-    if (this.options.admin !== 'whitelist') {
-      return false
-    }
+    try {
+      fs.accessSync(file, fs.constants.F_OK)
 
-    return this.ADMIN_IPS.indexOf(ip) !== -1
+      this.updateBannedIps().then((success) => {
+        if (success) {
+          watch()
+        }
+      })
+    } catch (error) {
+      const _checkForWatchInterval = setInterval(() => {
+        fs.access(file, fs.constants.F_OK, (err) => {
+          if (err) {
+            return
+          }
+
+          this.updateBannedIps().then((success) => {
+            if (success) {
+              clearInterval(_checkForWatchInterval)
+
+              watch()
+            }
+          })
+        })
+      }, 1000 * 10)
+    }
   }
 
-  updateIps() {
-    const files = {
-      ADMIN_IPS: '../admin.txt',
-      BANNED_IPS: '../banned.txt',
-    }
+  updateBannedIps() {
+    const file = path.resolve(__dirname, '../banned.txt')
 
-    Object.keys(files).forEach((name) => {
-      if (fs.existsSync(files[name])) {
-        const file = fs.readFileSync(files[name], 'utf8')
-
-        if (!file || !file.trim().length) {
-          return false
+    return new Promise((resolve) => {
+      fs.readFile(file, 'utf8', (err, data) => {
+        if (err) {
+          return
         }
 
-        this[name] = file.split('\n')
-      } else {
-        this[name] = []
-      }
+        this.BANNED_IPS = data
+          .split('\n')
+          .map((a) => a.trim())
+          .filter((a) => a.length)
+
+        resolve(true)
+      })
     })
   }
 

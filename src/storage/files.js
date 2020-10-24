@@ -1,6 +1,6 @@
 const fs = require('fs')
-const path = require('path');
-const {getHms, groupByPairs} = require('../helper')
+const path = require('path')
+const { getHms, groupByPairs } = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -19,7 +19,17 @@ class FilesStorage {
       fs.mkdirSync(this.options.filesLocation)
     }
 
-    console.log(`[storage/${this.name}] destination folder: ${this.options.filesLocation}`)
+    for (let pair of this.options.pairs) {
+      const dir = `${this.options.filesLocation}/${pair}`
+
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir)
+      }
+    }
+
+    console.log(
+      `[storage/${this.name}] destination folder: ${this.options.filesLocation}`
+    )
   }
 
   /**
@@ -32,7 +42,7 @@ class FilesStorage {
    */
   getBackupFilename(pair, date) {
     let filename = `
-			${this.options.filesLocation}/${pair}
+			${this.options.filesLocation}/${pair}/${pair}
 			_${date.getFullYear()}
 			-${('0' + (date.getMonth() + 1)).slice(-2)}
 			-${('0' + date.getDate()).slice(-2)}
@@ -50,11 +60,11 @@ class FilesStorage {
       filename += `-${('0' + date.getSeconds()).slice(-2)}`
     }
 
-    return filename.replace(/\s+/g, '');
+    return filename.replace(/\s+/g, '')
   }
 
   addWritableStream(pair, ts) {
-    const date = new Date(+ts);
+    const date = new Date(+ts)
     if (!(date instanceof Date) || !isFinite(date)) {
       debugger
     }
@@ -62,10 +72,14 @@ class FilesStorage {
 
     this.writableStreams[pair + ts] = {
       updatedAt: null,
-      stream: fs.createWriteStream(name, { flags: 'a' })
+      stream: fs.createWriteStream(name, { flags: 'a' }),
     }
 
-    console.log(`[storage/${this.name}] created writable stream ${date.toUTCString()} => ${name}`)
+    console.log(
+      `[storage/${
+        this.name
+      }] created writable stream ${date.toUTCString()} => ${name}`
+    )
   }
 
   reviewStreams() {
@@ -76,7 +90,9 @@ class FilesStorage {
         this.writableStreams[pairTs].stream.end()
         delete this.writableStreams[pairTs]
 
-        console.log(`[storage/${this.name}] closed stream ${new Date(+ts).toUTCString()}`)
+        console.log(
+          `[storage/${this.name}] closed stream ${new Date(+ts).toUTCString()}`
+        )
       }
     }
   }
@@ -84,7 +100,7 @@ class FilesStorage {
   save(trades) {
     const now = +new Date()
 
-    const groups = groupByPairs(trades);
+    const groups = groupByPairs(trades)
 
     const output = Object.keys(groups).reduce((obj, pair) => {
       obj[pair] = {}
@@ -98,18 +114,26 @@ class FilesStorage {
 
       for (let pair in groups) {
         for (let i = 0; i < groups[pair].length; i++) {
-          const trade = groups[pair][i];
+          const trade = groups[pair][i]
 
-          const ts = Math.floor(trade.timestamp / this.options.filesInterval) * this.options.filesInterval
+          const ts =
+            Math.floor(trade.timestamp / this.options.filesInterval) *
+            this.options.filesInterval
 
           if (!output[pair][ts]) {
             output[pair][ts] = ''
           }
 
-          const forWrite = [trade.exchange, trade.timestamp, trade.price, trade.size, trade.side === 'buy' ? 1 : 0];
+          const forWrite = [
+            trade.exchange,
+            trade.timestamp,
+            trade.price,
+            trade.size,
+            trade.side === 'buy' ? 1 : 0,
+          ]
 
           if (trade.liquidation) {
-            forWrite.push(1);
+            forWrite.push(1)
           }
 
           output[pair][ts] += forWrite.join(' ') + '\n'
@@ -125,34 +149,41 @@ class FilesStorage {
           }
 
           promises.push(
-            new Promise(resolve => {
-              this.writableStreams[pair + ts].stream.write(output[pair][ts], err => {
-                if (err) {
-                  console.log(`[storage/${this.name}] stream.write encountered an error\n\t${err}`)
-                } else {
-                  this.writableStreams[pair + ts].updatedAt = now
-                }
+            new Promise((resolve) => {
+              this.writableStreams[pair + ts].stream.write(
+                output[pair][ts],
+                (err) => {
+                  if (err) {
+                    console.log(
+                      `[storage/${this.name}] stream.write encountered an error\n\t${err}`
+                    )
+                  } else {
+                    this.writableStreams[pair + ts].updatedAt = now
+                  }
 
-                resolve()
-              })
+                  resolve()
+                }
+              )
             })
           )
         }
       }
 
       Promise.all(promises).then(() => resolve())
-    }).then(success => {
+    }).then((success) => {
       this.reviewStreams()
 
       return success
     })
   }
 
-  fetch({from, to, pair}) {
+  fetch({ from, to, pair }) {
     const paths = []
 
     for (
-      let i = Math.floor(from / this.options.filesInterval) * this.options.filesInterval;
+      let i =
+        Math.floor(from / this.options.filesInterval) *
+        this.options.filesInterval;
       i <= to;
       i += this.options.filesInterval
     ) {
@@ -164,7 +195,7 @@ class FilesStorage {
     }
 
     return Promise.all(
-      paths.map(filePath => {
+      paths.map((filePath) => {
         return new Promise((resolve, reject) => {
           fs.readFile(filePath, 'utf8', (error, data) => {
             if (error) {
@@ -174,8 +205,11 @@ class FilesStorage {
 
             data = data.trim().split('\n')
 
-            if (data[0].split(' ')[1] >= from && data[data.length - 1].split(' ')[1] <= to) {
-              return resolve(data.map(row => row.split(' ')))
+            if (
+              data[0].split(' ')[1] >= from &&
+              data[data.length - 1].split(' ')[1] <= to
+            ) {
+              return resolve(data.map((row) => row.split(' ')))
             } else {
               const chunk = []
 
@@ -194,7 +228,7 @@ class FilesStorage {
           })
         })
       })
-    ).then(chunks => [].concat.apply([], chunks))
+    ).then((chunks) => [].concat.apply([], chunks))
   }
 }
 

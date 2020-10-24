@@ -1,17 +1,17 @@
 const EventEmitter = require('events')
 const axios = require('axios')
 const WebSocket = require('ws')
-const {
-  ID,
-  mapPair,
-  getHms
-} = require('./helper')
+const config = require('./config')
+
+const { ID, mapPair, getHms } = require('./helper')
 
 require('./typedef')
 
 class Exchange extends EventEmitter {
   constructor(options) {
     super()
+
+    this.lastMessages = []
 
     /**
      * ping timers
@@ -119,11 +119,19 @@ class Exchange extends EventEmitter {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
-    pair = this.fixLocalPair(pair, match);
+    if (config.fixLocalPair) {
+      pair = this.fixLocalPair(pair, match)
+    }
 
     for (let localPair in this.match) {
-      if (pair === localPair || (this.match[localPair] === match && this.getUrl(pair) === this.getUrl(localPair))) {
-        return Promise.reject(`${this.id} already connected to ${pair} (${this.id}:${match})`)
+      if (
+        pair === localPair ||
+        (this.match[localPair] === match &&
+          this.getUrl(pair) === this.getUrl(localPair))
+      ) {
+        return Promise.reject(
+          `${this.id} already connected to ${pair} (${this.id}:${match})`
+        )
       }
     }
 
@@ -222,7 +230,10 @@ class Exchange extends EventEmitter {
       api._send = api.send
       api.send = (data) => {
         if (api.readyState !== WebSocket.OPEN) {
-          console.error(`[${this.id}] attempted to send data to an non-OPEN websocket api`, data)
+          console.error(
+            `[${this.id}] attempted to send data to an non-OPEN websocket api`,
+            data
+          )
           return
         }
 
@@ -240,13 +251,31 @@ class Exchange extends EventEmitter {
       api.onmessage = (event) => {
         if (this.onMessage(event, api) === true) {
           api.timestamp = +new Date()
+        } else {
+          let json
+
+          try {
+            if (event instanceof String) {
+              json = JSON.parse(event)
+            } else {
+              json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
+            }
+          } catch (error) {
+            return
+          }
+
+          this.lastMessages.push(json)
+
+          if (this.lastMessages === 11) {
+            this.lastMessages.splice(0, 1)
+          }
         }
       }
 
       api.onopen = (event) => {
         if (typeof this.reconnectionDelay[url] !== 'undefined') {
           console.debug(`[${this.id}] clear reconnection delay (${url})`)
-          delete this.reconnectionDelay[url];
+          delete this.reconnectionDelay[url]
         }
 
         if (this.connecting[url]) {
@@ -271,11 +300,7 @@ class Exchange extends EventEmitter {
         }
 
         if (api._pairs.length) {
-          const pairsToReconnect = api._pairs.slice(0, api._pairs.length);
-
-          console.log(
-            `[${this.id}] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(',')})`
-          )
+          const pairsToReconnect = api._pairs.slice(0, api._pairs.length)
 
           for (let pair of api._pairs) {
             await this.unlink(pair)
@@ -287,8 +312,20 @@ class Exchange extends EventEmitter {
             this.reconnectPairs(pairsToReconnect)
           }, delay)
 
-          this.reconnectionDelay[api.url] = Math.min(1000 * 30, (delay || 1000) * 1.5)
-          console.debug(`[${this.id}] increment reconnection delay (${url}) = ${getHms(this.reconnectionDelay[api.url])}`)
+          this.reconnectionDelay[api.url] = Math.min(
+            1000 * 30,
+            (delay || 500) * 1.5
+          )
+
+          console.log(
+            `[${
+              this.id
+            }] connection closed unexpectedly, schedule reconnection in ${getHms(
+              this.reconnectionDelay[api.url]
+            )} (${pairsToReconnect.join(',')})`
+          )
+
+          console.log(this.lastMessages)
         }
       }
 
@@ -299,7 +336,8 @@ class Exchange extends EventEmitter {
       this.connecting[url] = {}
 
       toResolve = new Promise((resolve, reject) => {
-        this.connecting[url].resolver = (success) => (success ? resolve(api) : reject())
+        this.connecting[url].resolver = (success) =>
+          success ? resolve(api) : reject()
       })
 
       this.connecting[url].promise = toResolve
@@ -333,8 +371,7 @@ class Exchange extends EventEmitter {
     let promiseOfClose
 
     if (api.readyState !== WebSocket.CLOSED) {
-      this.disconnecting[api.url] = {
-      }
+      this.disconnecting[api.url] = {}
 
       promiseOfClose = new Promise((resolve, reject) => {
         if (api.readyState < WebSocket.CLOSING) {
@@ -362,7 +399,11 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    */
   reconnectApi(api) {
-    console.debug(`[${this.id}] reconnect api (url: ${api.url}, _pairs: ${api._pairs.join(', ')})`)
+    console.debug(
+      `[${this.id}] reconnect api (url: ${api.url}, _pairs: ${api._pairs.join(
+        ', '
+      )})`
+    )
 
     this.reconnectPairs(api._pairs)
   }
@@ -381,7 +422,7 @@ class Exchange extends EventEmitter {
       await this.unlink(pair)
     }
 
-    await new Promise(resolve => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
     for (let pair of pairsToReconnect) {
       await this.link(pair)
@@ -599,7 +640,7 @@ class Exchange extends EventEmitter {
     if (!trades || !trades.length) {
       return
     }
-    
+
     this.emit('trades', {
       source: source,
       data: trades,
@@ -645,9 +686,9 @@ class Exchange extends EventEmitter {
     return this.mapping[remotePair]
   }
 
-  startKeepAlive(api, payload = {event: 'ping'}, every = 30000) {
+  startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {
     if (this.keepAliveIntervals[api.url]) {
-      this.stopKeepAlive(api);
+      this.stopKeepAlive(api)
     }
 
     console.debug(`[${this.id}] setup keepalive for ws ${api.url}`)
@@ -666,19 +707,29 @@ class Exchange extends EventEmitter {
 
     console.debug(`[${this.id}] stop keepalive for ws ${api.url}`)
 
-    clearInterval(this.keepAliveIntervals[api.url]);
-    delete this.keepAliveIntervals[api.url];
+    clearInterval(this.keepAliveIntervals[api.url])
+    delete this.keepAliveIntervals[api.url]
   }
 
   fixLocalPair(localPair, remotePair) {
-    if (this.products && !Array.isArray(this.products) && !this.products[localPair]) {
+    if (
+      this.products &&
+      !Array.isArray(this.products) &&
+      !this.products[localPair]
+    ) {
       // remote pair match ? fix local pair...
 
-      console.log('FIX LOCAL PAIR', this.id, 'provided local pair (prolly remote):', localPair, 'matched with remote pair:', remotePair);
+      console.log(
+        'FIX LOCAL PAIR',
+        this.id,
+        'provided local pair (prolly remote):',
+        localPair,
+        'matched with remote pair:',
+        remotePair
+      )
 
       for (let _localPair in this.products) {
         if (remotePair === this.products[_localPair]) {
-          console.log('found true local pair', this.id, _localPair);
           return _localPair
         }
       }

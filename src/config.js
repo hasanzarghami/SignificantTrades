@@ -35,6 +35,9 @@ const DEFAULTS = {
   // (warning) will add +50ms delay for confirmation that trade actually came on same ms
   aggr: true,
 
+  // allow remote pair fallback if it matchs
+  fixLocalPair: true,
+
   // restrict origin (now using regex)
   origin: '.*',
 
@@ -63,7 +66,7 @@ const DEFAULTS = {
   backupInterval: 1000 * 10,
 
   // influx db server to use when storage is set to "influx"
-  influxUrl: 'localhost:9200',
+  influxUrl: 'localhost:8086',
 
   // influx database
   influxDatabase: 'significant_trades',
@@ -86,7 +89,7 @@ const DEFAULTS = {
   filesLocation: './data',
 
   // reconnect exchange api if no data received since n ms (default 10m)
-  reconnectionThreshold: 1000 * 60 * 10,
+  reconnectionThreshold: 1000 * 60 * 5,
 
   // choose whether or not enable rate limiting on the provided api
   enableRateLimit: false,
