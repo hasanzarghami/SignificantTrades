@@ -98,7 +98,7 @@ class Server extends EventEmitter {
         // profile exchanges connections (keep alive)
         this._activityMonitoringInterval = setInterval(
           this.monitorExchangesActivity.bind(this, +new Date()),
-          this.options.reconnectionThreshold / 10
+          1000 * 60
         )
 
         if (this.storages) {
@@ -775,12 +775,8 @@ class Server extends EventEmitter {
 
   monitorExchangesActivity(startedAt) {
     const now = +new Date()
-    const schedule = this.options.reconnectionThreshold / 10
 
-    if (
-      !(Math.round((now - startedAt) / schedule) * schedule) %
-      this.options.reconnectionThreshold
-    ) {
+    if ((Math.round((now - startedAt) / (1000 * 60)) % 5) === 0) {
       this.dumpConnections()
     }
 

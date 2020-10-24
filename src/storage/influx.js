@@ -20,6 +20,10 @@ class InfluxStorage {
   async connect() {
     console.log(`[storage/${this.name}] connecting`)
 
+    if (/\-/.test(this.options.influxDatabase)) {
+      throw new Error('dashes not allowed inside influxdb database')
+    }
+
     this.influx = new Influx.InfluxDB({
       host: this.options.influxUrl,
       database: this.options.influxDatabase,
@@ -96,18 +100,8 @@ class InfluxStorage {
         .query(
           `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
         )
-        .then((res) => {
-          /*console.log(
-            `${sourceTimeframe} => ${destinationTimeframe} (from ${new Date(
-              flooredRange.from
-            ).toLocaleTimeString()} to ${new Date(
-              flooredRange.to
-            ).toLocaleTimeString()})`
-          )*/
-        })
         .catch((err) => {
-          debugger
-          console.log(err)
+          console.log(err.message, '\nquery:\n', `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
         })
     }
   }
