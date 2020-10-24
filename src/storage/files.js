@@ -89,10 +89,6 @@ class FilesStorage {
       if (now - this.writableStreams[pairTs].updatedAt > 1000 * 60 * 10) {
         this.writableStreams[pairTs].stream.end()
         delete this.writableStreams[pairTs]
-
-        console.log(
-          `[storage/${this.name}] closed stream ${new Date(+pairTs).toUTCString()}`
-        )
       }
     }
   }
