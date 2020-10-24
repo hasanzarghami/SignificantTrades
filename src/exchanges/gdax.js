@@ -19,10 +19,6 @@ class Gdax extends Exchange {
   }
 
   getMatch(pair) {
-    if (!this.products) {
-      return false
-    }
-
     if (this.products[pair]) {
       return this.products[pair]
     }

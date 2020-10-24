@@ -30,10 +30,6 @@ class Kraken extends Exchange {
   }
 
   getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
     for (let id in this.products) {
       if (this.products[id].toLowerCase() === pair.toLowerCase()) {
         return this.products[id]

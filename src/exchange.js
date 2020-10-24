@@ -113,6 +113,10 @@ class Exchange extends EventEmitter {
    * @returns {Promise<WebSocket>}
    */
   link(pair) {
+    if (!this.products) {
+      return Promise.reject(`${this.id} has no products`)
+    }
+
     const match = this.getMatch(pair)
 
     if (!match) {
