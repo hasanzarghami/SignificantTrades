@@ -125,7 +125,7 @@ class Deribit extends Exchange {
   }
 
   onApiBinded(api) {
-    this.startKeepAlive(api, { action: '/api/v1/public/ping' }, 45000)
+    this.startKeepAlive(api, { method: 'public/ping' }, 45000)
   }
 
   onApiUnbinded(api) {
