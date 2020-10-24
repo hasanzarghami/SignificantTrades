@@ -91,7 +91,7 @@ class FilesStorage {
         delete this.writableStreams[pairTs]
 
         console.log(
-          `[storage/${this.name}] closed stream ${new Date(+ts).toUTCString()}`
+          `[storage/${this.name}] closed stream ${new Date(+pairTs).toUTCString()}`
         )
       }
     }
