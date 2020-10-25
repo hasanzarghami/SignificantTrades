@@ -35,8 +35,8 @@ const DEFAULTS = {
   // (warning) will add +50ms delay for confirmation that trade actually came on same ms
   aggr: true,
 
-  // allow remote pair fallback if it matchs
-  fixLocalPair: true,
+  // allow match remote pair
+  matchRemotePair: false,
 
   // restrict origin (now using regex)
   origin: '.*',

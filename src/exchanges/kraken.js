@@ -29,16 +29,6 @@ class Kraken extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    for (let id in this.products) {
-      if (this.products[id].toLowerCase() === pair.toLowerCase()) {
-        return this.products[id]
-      }
-    }
-
-    return false
-  }
-
   formatProducts(response) {
     const products = {}
     const specs = {}
@@ -55,6 +45,10 @@ class Kraken extends Exchange {
 
           if (/^PI_/i.test(pair)) {
             pair = pair.replace(/^PI_/, '').replace('XBT', 'BTC') + '-PERPETUAL'
+          }
+
+          if (/^FI_/i.test(pair)) {
+            pair = pair.replace(/^FI_/, '').replace('XBT', 'BTC')
           }
 
           specs[remotePair] = product.contractSize

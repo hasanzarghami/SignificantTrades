@@ -29,14 +29,6 @@ class Binance extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    return false
-  }
-
   formatProducts(response) {
     const products = {}
 

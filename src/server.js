@@ -68,33 +68,10 @@ class Server extends EventEmitter {
         console.log(
           `\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`
         )
+        
         this.handleExchangesEvents()
         this.connectExchanges()
-        /*
-        setTimeout(() => {
-          this.connectPairs(['XMRUSD'])
-        }, 10000)
 
-        setTimeout(() => {
-          this.disconnectPairs(['BTCUSDT'])
-        }, 20000)
-
-        setTimeout(() => {
-          this.connectPairs(['XBTUSD'])
-        }, 30000)
-
-        setTimeout(() => {
-          this.disconnectPairs(['XBTUSD'])
-        }, 40000)
-
-        setTimeout(() => {
-          this.connectPairs(['XBTUSD'])
-        }, 50000)
-
-        setTimeout(() => {
-          this.disconnectPairs(['PI_XBTUSD'])
-        }, 60000)
-*/
         // profile exchanges connections (keep alive)
         this._activityMonitoringInterval = setInterval(
           this.monitorExchangesActivity.bind(this, +new Date()),
@@ -332,9 +309,9 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws/${ws.pairs.join('+')}] joined ${
-          req.url
-        } from ${req.headers['origin']}`
+        `[${ip}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${
+          req.headers['origin']
+        }`
       )
 
       this.emit('connections', this.wss.clients.size)
@@ -351,11 +328,7 @@ class Server extends EventEmitter {
               .filter((a) => a.length)
           : []
 
-        console.log(
-          `[${ip}/ws] subscribe to ${pairs.join(
-            ' + '
-          )}`
-        )
+        console.log(`[${ip}/ws] subscribe to ${pairs.join(' + ')}`)
 
         ws.pairs = pairs
       })
@@ -629,9 +602,9 @@ class Server extends EventEmitter {
       for (let identifier in this.matchs) {
         const match = this.matchs[identifier]
 
-        structPairs[match.exchange + ':' + match.remote] = {
+        structPairs[match.exchange + ':' + match.local] = {
           local: match.local,
-          mapped: match.mapped,
+          remote: match.remote,
           hit: match.hit,
           ping: match.hit ? ago(match.timestamp) : 'never',
         }
@@ -650,12 +623,10 @@ class Server extends EventEmitter {
 
     this.chunk = []
 
-    console.log(
-      `[server] fetching products for ${this.exchanges.length} exchange(s)`
-    )
-
     const exchangesProductsResolver = Promise.all(
-      this.exchanges.map((a) => a.fetchProducts())
+      this.exchanges.map((exchange) =>
+        exchange.fetchAndConnect(this.options.pairs)
+      )
     )
 
     exchangesProductsResolver.then(() => {
@@ -665,7 +636,7 @@ class Server extends EventEmitter {
         } exchange(s)`
       )
 
-      return this.connectPairs(this.options.pairs)
+      this.dumpConnections()
     })
 
     if (this.options.delay && !this.options.aggr) {
@@ -776,7 +747,7 @@ class Server extends EventEmitter {
   monitorExchangesActivity(startedAt) {
     const now = +new Date()
 
-    if ((Math.round((now - startedAt) / (1000 * 60)) % 5) === 0) {
+    if (Math.round((now - startedAt) / (1000 * 60)) % 5 === 0) {
       this.dumpConnections()
     }
 

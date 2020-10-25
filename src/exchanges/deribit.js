@@ -20,22 +20,6 @@ class Deribit extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    // allow match to remote pair syntax also
-    // so both BTCUSD and BTC-PERPETUAL as localPair will work
-    for (let localPair in this.products) {
-      if (this.products[localPair] === pair) {
-        return this.products[localPair]
-      }
-    }
-
-    return false
-  }
-
   formatProducts(data) {
     return data.result.reduce((output, product) => {
       output[

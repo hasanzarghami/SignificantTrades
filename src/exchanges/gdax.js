@@ -18,21 +18,6 @@ class Gdax extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    // allow match to remote pair syntax also
-    for (let localPair in this.products) {
-      if (this.products[localPair] === pair) {
-        return this.products[localPair]
-      }
-    }
-
-    return false
-  }
-
   formatProducts(data) {
     const products = {}
 

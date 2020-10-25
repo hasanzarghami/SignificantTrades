@@ -21,21 +21,6 @@ class Ftx extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    let remotePair = this.products[pair]
-
-    if (!remotePair) {
-      for (let name in this.products) {
-        if (pair === this.products[name]) {
-          remotePair = this.products[name]
-          break
-        }
-      }
-    }
-
-    return remotePair || false
-  }
-
   formatProducts(data) {
     return data.result.reduce((obj, product) => {
       if (product.type === 'spot') {

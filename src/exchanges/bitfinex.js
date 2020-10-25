@@ -21,7 +21,22 @@ class Bitfinex extends Exchange {
   }
 
   formatProducts(data) {
-    return data.map((a) => a.toUpperCase())
+    const products =  data.reduce((output, remotePair) => {
+      let localPair
+
+      if (/f0:ustf0$/.test(remotePair)) {
+        localPair =
+          remotePair.replace(/f0:ustf0$/, '').toUpperCase() + 'USD-PERPETUAL'
+      } else {
+        localPair = remotePair.replace(':', '').toUpperCase()
+      }
+
+      output[localPair] = remotePair.toUpperCase()
+
+      return output
+    }, {})
+
+    return products;
   }
 
   /**
@@ -72,7 +87,9 @@ class Bitfinex extends Exchange {
 
     if (json.event) {
       if (json.chanId && json.pair) {
-        console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
+        console.debug(
+          `[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`
+        )
         if (this.pairs.indexOf(json.pair) === -1) {
           debugger
         }
@@ -94,7 +111,9 @@ class Bitfinex extends Exchange {
     const channel = this.channels[json[0]]
 
     if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
-      console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
+      console.debug(
+        `[${this.id}] skip first payload ${channel.name}:${channel.pair}`
+      )
       channel.hasReceivedInitialData = true
       return
     }
@@ -120,7 +139,7 @@ class Bitfinex extends Exchange {
         json[1]
           .filter((a) => this.pairs.indexOf(a[4].substring(1)) !== -1)
           .map((a) => {
-            const pair = a[4].substring(1);
+            const pair = a[4].substring(1)
 
             return {
               exchange: this.id,

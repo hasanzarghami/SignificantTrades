@@ -20,14 +20,6 @@ class Poloniex extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    return false
-  }
-
   formatProducts(data) {
     let output = {}
 

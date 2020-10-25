@@ -2,6 +2,7 @@ const EventEmitter = require('events')
 const axios = require('axios')
 const WebSocket = require('ws')
 const config = require('./config')
+const pako = require('pako')
 
 const { ID, mapPair, getHms } = require('./helper')
 
@@ -11,7 +12,7 @@ class Exchange extends EventEmitter {
   constructor(options) {
     super()
 
-    this.lastMessages = []
+    this.lastMessages = [] // debug
 
     /**
      * ping timers
@@ -91,8 +92,21 @@ class Exchange extends EventEmitter {
       return false
     }
 
-    if (this.products.indexOf(pair) !== -1) {
+    if (Array.isArray(this.products) && this.products.indexOf(pair) !== -1) {
       return pair
+    } else  {
+      let remotePair = this.products[pair]
+
+      if (!remotePair && config.matchRemotePair) {
+        for (let name in this.products) {
+          if (pair === this.products[name]) {
+            remotePair = this.products[name]
+            break
+          }
+        }
+      }
+
+      return remotePair || false
     }
 
     return false
@@ -112,19 +126,11 @@ class Exchange extends EventEmitter {
    * @param {*} pair
    * @returns {Promise<WebSocket>}
    */
-  link(pair) {
-    if (!this.products) {
-      return Promise.reject(`${this.id} has no products`)
-    }
-
+  async link(pair) {
     const match = this.getMatch(pair)
 
     if (!match) {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
-    }
-
-    if (config.fixLocalPair) {
-      pair = this.fixLocalPair(pair, match)
     }
 
     for (let localPair in this.match) {
@@ -144,13 +150,13 @@ class Exchange extends EventEmitter {
 
     console.debug(`[${this.id}] linking ${pair}`)
 
-    return this.bindApi(pair).then(async (api) => {
-      this.emit('match', pair, match, api.id)
+    const api = await this.bindApi(pair)
 
-      await this.subscribe(api, pair)
+    this.emit('match', pair, match, api.id)
 
-      return api
-    })
+    await this.subscribe(api, pair)
+
+    return api
   }
 
   /**
@@ -259,19 +265,27 @@ class Exchange extends EventEmitter {
           let json
 
           try {
-            if (event.data instanceof String) {
-              json = JSON.parse(event.data)
-            } else {
-              json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
-            }
+            json = JSON.parse(event.data)
           } catch (error) {
-            return
+            try {
+              json = JSON.parse(pako.inflate(event.data, { to: 'string' }))
+            } catch (error) {
+              try {
+                json = JSON.parse(pako.inflateRaw(event.data, { to: 'string' }))
+              } catch (error) {
+                //
+              }
+            }
           }
 
+          if (!json) {
+            return
+          }
+          
           this.lastMessages.push(json)
 
-          if (this.lastMessages === 11) {
-            this.lastMessages.splice(0, 1)
+          if (this.lastMessages.length > 5) {
+            this.lastMessages.splice(0, this.lastMessages.length - 5)
           }
         }
       }
@@ -310,23 +324,22 @@ class Exchange extends EventEmitter {
             await this.unlink(pair)
           }
 
-          const delay = this.reconnectionDelay[api.url] || 0
-
-          setTimeout(() => {
-            this.reconnectPairs(pairsToReconnect)
-          }, delay)
-
-          this.reconnectionDelay[api.url] = Math.min(
-            1000 * 30,
-            (delay || 500) * 1.5
-          )
-
           console.log(
             `[${
               this.id
-            }] connection closed unexpectedly, schedule reconnection in ${getHms(
-              this.reconnectionDelay[api.url]
-            )} (${pairsToReconnect.join(',')})`
+            }] connection closed unexpectedly, schedule reconnection (${pairsToReconnect.join(
+              ','
+            )})`
+          )
+
+          this.reconnectionDelay[api.url] = this.schedule(
+            () => {
+              this.reconnectPairs(pairsToReconnect)
+            },
+            this.reconnectionDelay[api.url],
+            500,
+            1.5,
+            1000 * 30
           )
 
           console.log(this.lastMessages)
@@ -434,10 +447,40 @@ class Exchange extends EventEmitter {
   }
 
   /**
+   * Ensure product are fetched and connect to pairs
+   * @returns {Promise<any>}
+   */
+  async fetchAndConnect(pairs) {
+    try {
+      await this.fetchProducts()
+    } catch (error) {
+      this.reconnectionDelay.fetch = this.schedule(
+        () => {
+          this.fetchAndConnect(pairs)
+        },
+        this.reconnectionDelay['fetch'],
+        4000,
+        1.5,
+        1000 * 60 * 3
+      )
+
+      return
+    }
+
+    for (let pair of pairs) {
+      try {
+        await this.link(pair)
+      } catch (error) {
+        // pair mismatch
+      }
+    }
+  }
+
+  /**
    * Get exchange products and save them
    * @returns {Promise<any>}
    */
-  fetchProducts() {
+  async fetchProducts() {
     if (!this.endpoints || !this.endpoints.PRODUCTS) {
       if (!this.products) {
         this.products = []
@@ -455,68 +498,57 @@ class Exchange extends EventEmitter {
       urls = [urls]
     }
 
-    console.log(`[${this.id}] fetching products...`, urls)
+    console.debug(`[${this.id}] fetching products...`, urls)
 
-    return new Promise((resolve, reject) => {
-      return Promise.all(
-        urls.map((action, index) => {
-          action = action.split('|')
+    let data = []
 
-          let method = action.length > 1 ? action.shift() : 'GET'
-          let url = action[0]
+    for (let url of urls) {
+      const action = url.split('|')
 
-          return new Promise((resolve, reject) => {
-            setTimeout(() => {
-              resolve(
-                axios
-                  .get(url, {
-                    method: method,
-                  })
-                  .then((response) => response.data)
-                  .catch((err) => {
-                    console.log(err)
+      let method = action.length > 1 ? action.shift() : 'GET'
+      let target = action[0]
 
-                    return null
-                  })
-              )
-            }, 500)
+      data.push(
+        await axios
+          .get(target, {
+            method: method,
           })
-        })
-      ).then((data) => {
-        console.log(
-          `[${this.id}] received API products response => format products`
-        )
+          .then((response) => response.data)
+          .catch(err => {
+            console.log(`[${this.id}] failed to fetch ${target}\n\t->`, err.message)
+            throw err
+          })
+      )
+    }
 
-        if (data.indexOf(null) !== -1) {
-          data = null
-        } else if (data.length === 1) {
-          data = data[0]
+    if (this.reconnectionDelay.fetch) {
+      delete this.reconnectionDelay.fetch
+    }
+
+    if (data.length === 1) {
+      data = data[0]
+    }
+
+    if (data) {
+      const formatedProducts = this.formatProducts(data) || []
+
+      if (
+        typeof formatedProducts === 'object' &&
+        formatedProducts.hasOwnProperty('products')
+      ) {
+        for (let key in formatedProducts) {
+          this[key] = formatedProducts[key]
         }
+      } else {
+        this.products = formatedProducts
+      }
+    } else {
+      this.products = null
+    }
 
-        if (data) {
-          const formatedProducts = this.formatProducts(data) || []
+    this.indexProducts()
 
-          if (
-            typeof formatedProducts === 'object' &&
-            formatedProducts.hasOwnProperty('products')
-          ) {
-            for (let key in formatedProducts) {
-              this[key] = formatedProducts[key]
-            }
-          } else {
-            this.products = formatedProducts
-          }
-
-          console.debug(`[${this.id}] saving products`)
-        } else {
-          this.products = null
-        }
-
-        this.indexProducts()
-
-        resolve(this.products)
-      })
-    })
+    return this.products
   }
 
   indexProducts() {
@@ -531,6 +563,8 @@ class Exchange extends EventEmitter {
     } else if (typeof this.products === 'object') {
       this.indexedProducts = Object.keys(this.products)
     }
+
+    console.log(`[${this.id}] ${this.indexedProducts.length} products indexed`)
 
     this.emit('index', this.indexedProducts)
   }
@@ -715,31 +749,26 @@ class Exchange extends EventEmitter {
     delete this.keepAliveIntervals[api.url]
   }
 
-  fixLocalPair(localPair, remotePair) {
-    if (
-      this.products &&
-      !Array.isArray(this.products) &&
-      !this.products[localPair]
-    ) {
-      // remote pair match ? fix local pair...
-
-      console.log(
-        'FIX LOCAL PAIR',
-        this.id,
-        'provided local pair (prolly remote):',
-        localPair,
-        'matched with remote pair:',
-        remotePair
-      )
-
-      for (let _localPair in this.products) {
-        if (remotePair === this.products[_localPair]) {
-          return _localPair
-        }
-      }
+  schedule(fn, currentDelay, minDelay, multiplier, maxDelay) {
+    if (this.scheduleTimeout) {
+      clearTimeout(this.scheduleTimeout)
     }
 
-    return localPair
+    currentDelay = Math.max(minDelay, currentDelay || 0)
+
+    this.scheduleTimeout = setTimeout(() => {
+      delete this.scheduleTimeout
+
+      fn()
+    }, currentDelay)
+
+    currentDelay *= multiplier
+
+    if (typeof maxDelay === 'number' && minDelay > 0) {
+      currentDelay = Math.min(maxDelay, currentDelay)
+    }
+
+    return currentDelay
   }
 }
 

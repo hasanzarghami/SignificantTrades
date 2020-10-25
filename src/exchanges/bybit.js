@@ -29,14 +29,6 @@ class Bybit extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    return false
-  }
-
   formatProducts(data) {
     return data.result.reduce((output, product) => {
       output[product.name + '-PERPETUAL'] = product.name
