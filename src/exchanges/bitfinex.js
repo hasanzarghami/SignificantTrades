@@ -20,23 +20,8 @@ class Bitfinex extends Exchange {
     )
   }
 
-  formatProducts(data) {
-    const products =  data.reduce((output, remotePair) => {
-      let localPair
-
-      if (/f0:ustf0$/.test(remotePair)) {
-        localPair =
-          remotePair.replace(/f0:ustf0$/, '').toUpperCase() + 'USD-PERPETUAL'
-      } else {
-        localPair = remotePair.replace(':', '').toUpperCase()
-      }
-
-      output[localPair] = remotePair.toUpperCase()
-
-      return output
-    }, {})
-
-    return products;
+  formatProducts(pairs) {
+    return pairs.map((product) => product.toUpperCase())
   }
 
   /**
@@ -53,9 +38,19 @@ class Bitfinex extends Exchange {
       JSON.stringify({
         event: 'subscribe',
         channel: 'trades',
-        symbol: 't' + this.match[pair],
+        symbol: 't' + pair,
       })
     )
+
+    if (/f0:ustf0$/.test(pair)) {
+      this.api.send(
+        JSON.stringify({
+          event: 'subscribe',
+          channel: 'status',
+          key: 'liq:t' + pair,
+        })
+      )
+    }
   }
 
   /**
@@ -69,8 +64,15 @@ class Bitfinex extends Exchange {
     }
 
     const channelsToUnsubscribe = Object.keys(this.channels).filter(
-      (id) => this.channels[id].pair === this.match[pair]
+      (id) => this.channels[id].pair === pair
     )
+
+    if (!channelsToUnsubscribe) {
+      console.log(
+        `[${this}.id}/unsubscribe] no channel to unsubscribe to, but server called unsubscibr(${pair}). Here is the active channels on bitfinex exchange :`,
+        this.channels
+      )
+    }
 
     for (let id of channelsToUnsubscribe) {
       api.send(
@@ -87,9 +89,7 @@ class Bitfinex extends Exchange {
 
     if (json.event) {
       if (json.chanId && json.pair) {
-        console.debug(
-          `[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`
-        )
+        console.debug(`[${this.id}] register channel ${json.chanId} (${json.channel}:${json.pair})`)
         if (this.pairs.indexOf(json.pair) === -1) {
           debugger
         }
@@ -111,9 +111,7 @@ class Bitfinex extends Exchange {
     const channel = this.channels[json[0]]
 
     if (channel.name !== 'status' && !channel.hasReceivedInitialData) {
-      console.debug(
-        `[${this.id}] skip first payload ${channel.name}:${channel.pair}`
-      )
+      console.debug(`[${this.id}] skip first payload ${channel.name}:${channel.pair}`)
       channel.hasReceivedInitialData = true
       return
     }

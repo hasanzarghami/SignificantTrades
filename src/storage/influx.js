@@ -1,5 +1,5 @@
 const Influx = require('influx')
-const { getHms, groupByPairs } = require('../helper')
+const { getHms, groupTrades } = require('../helper')
 
 require('../typedef')
 
@@ -31,8 +31,6 @@ class InfluxStorage {
 
     const databases = await this.influx.getDatabaseNames()
 
-    console.log(databases);
-
     if (!databases.includes(this.options.influxDatabase)) {
       await this.influx.createDatabase(this.options.influxDatabase)
     }
@@ -57,11 +55,7 @@ class InfluxStorage {
         to: Math.floor(range.to / timeframe) * timeframe + timeframe,
       }
 
-      for (
-        let i = this.options.influxResampleTo.indexOf(timeframe);
-        i >= 0;
-        i--
-      ) {
+      for (let i = this.options.influxResampleTo.indexOf(timeframe); i >= 0; i--) {
         if (
           timeframe <= this.options.influxResampleTo[i] ||
           timeframe % this.options.influxResampleTo[i] !== 0
@@ -97,11 +91,13 @@ class InfluxStorage {
       const group = `GROUP BY time(${destinationTimeframe}), exchange, pair fill(none)`
 
       await this.influx
-        .query(
-          `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
-        )
+        .query(`${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
         .catch((err) => {
-          console.log(err.message, '\nquery:\n', `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`)
+          console.log(
+            err.message,
+            '\nquery:\n',
+            `${query} INTO ${query_into} FROM ${query_from} ${coverage} ${group}`
+          )
         })
     }
   }
@@ -110,14 +106,12 @@ class InfluxStorage {
     this.influx
       .query(
         `SELECT close FROM ${this.options.influxMeasurement}${
-          this.options.influxTimeframe
-            ? '_' + getHms(this.options.influxTimeframe)
-            : ''
+          this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''
         } GROUP BY "exchange", "pair" ORDER BY time DESC LIMIT 1`
       )
       .then((data) => {
         for (let bar of data) {
-          this.lastClose[bar.exchange + bar.pair] = bar.close
+          this.lastClose[bar.exchange + ':' + bar.pair] = bar.close
         }
       })
   }
@@ -134,185 +128,214 @@ class InfluxStorage {
       return Promise.resolve()
     }
 
-    const groups = groupByPairs(trades)
-    const resampleRange = {
-      from: Infinity,
-      to: 0,
-    }
-
-    for (let pair in groups) {
-      const { from, to } = await this.import(groups[pair], pair)
-
-      resampleRange.from = Math.min(from, resampleRange.from)
-      resampleRange.to = Math.max(to, resampleRange.to)
-    }
+    const resampleRange = await this.import(trades)
 
     await this.resample(resampleRange)
+  }
+
+  /**
+   * close a bar (register close + reference for next bar)
+   * @param {Bar} bar
+   */
+  closeBar(bar) {
+    const barIdentifier = bar.exchange + ':' + bar.pair
+
+    if (typeof bar.close === 'number') {
+      // reg close for next bar
+      this.lastClose[barIdentifier] = bar.close
+    }
+
+    this.lastBar[barIdentifier] = bar
+
+    return this.lastBar[barIdentifier]
   }
 
   /**
    * Import the trades to influx db
    *
    * @param {Trade[]} trades
-   * @param {*} pair
-   * @returns {Promise<any>}
+   * @param {string} identifier ex bitmex:XBTUSD
+   * @returns {Promise<{
+      from: number,
+      to: number,
+      pairs: string[],
+      exchanges: string[]
+    }>}
    * @memberof InfluxStorage
    */
-  import(trades, pair) {
-    // array of bars
-    let bars = []
+  import(trades, identifier) {
+    /**
+     * Current bars
+     * @type {{[identifier: string]: Bar}}
+     */
+    const activeBars = {}
 
-    // array of liquidations
-    let liquidations = []
+    /**
+     * closed bars
+     * @type {Bar[]}
+     */
+    const closedBars = []
 
-    // current bar ({} of exchanges)
-    let bar = {}
+    /**
+     * liquidations
+     * @type {Trade[]}
+     */
+    const liquidations = []
 
-    // current time
-    let barTs = 0
-
-    const resampleRange = {
+    /**
+     * Total range of import
+     * @type {TimeRange}
+     */
+    const totalRange = {
       from: Infinity,
       to: 0,
+      pairs: [],
+      exchanges: [],
     }
 
     for (let i = 0; i <= trades.length; i++) {
       const trade = trades[i]
-      let tradeTs
 
-      // trade timestamp floored to timeframe
-      if (trade) {
-        if (trade.liquidation) {
-          liquidations.push(trade)
+      let tradeIdentifier
+      let tradeFlooredTime
+
+      if (!trade) {
+        // end of loop reached = close all bars
+        for (let barIdentifier in activeBars) {
+          closedBars.push(this.closeBar(activeBars[barIdentifier]))
+
+          delete activeBars[barIdentifier]
         }
 
-        tradeTs =
-          Math.floor(trade.timestamp / this.options.influxTimeframe) *
-          this.options.influxTimeframe
+        break
+      } else {
+        tradeIdentifier = trade.exchange + ':' + trade.pair
+        tradeFlooredTime =
+          Math.floor(trade.timestamp / this.options.influxTimeframe) * this.options.influxTimeframe
 
-        resampleRange.from = Math.min(tradeTs, resampleRange.from)
-        resampleRange.to = Math.max(tradeTs, resampleRange.to)
-      }
+        if (!activeBars[tradeIdentifier] || activeBars[tradeIdentifier].time < tradeFlooredTime) {
+          if (activeBars[tradeIdentifier]) {
+            // close bar required
 
-      if (!trade || tradeTs > barTs) {
-        for (let exchange in bar) {
-          this.lastBar[exchange + pair] = bar[exchange]
+            closedBars.push(this.closeBar(activeBars[tradeIdentifier]))
 
-          if (typeof bar[exchange].close === 'number') {
-            // reg close for next bar
-            this.lastClose[exchange + pair] = bar[exchange].close
+            delete activeBars[tradeIdentifier]
           }
 
-          bars.push(this.lastBar[exchange + pair])
-        }
+          if (trade) {
+            // create bar required
 
-        if (!trade) {
-          break
-        }
+            if (
+              this.lastBar[tradeIdentifier] &&
+              this.lastBar[tradeIdentifier].time === tradeFlooredTime
+            ) {
+              // trades passed in save() contains some of the last batch (trade time = last bar time)
+              // recover exchange point of lastbar
+              activeBars[tradeIdentifier] = this.lastBar[tradeIdentifier]
+            } else {
+              // create new bar
+              activeBars[tradeIdentifier] = {
+                time: tradeFlooredTime,
+                pair: trade.pair,
+                exchange: trade.exchange,
+                cbuy: 0,
+                csell: 0,
+                vbuy: 0,
+                vsell: 0,
+                lbuy: 0,
+                lsell: 0,
+                open: null,
+                high: null,
+                low: null,
+                close: null,
+              }
 
-        bar = {}
-        barTs = tradeTs
-      }
-
-      const exchange = trade.exchange
-      const identifier = exchange + pair
-
-      if (!bar[exchange]) {
-        if (
-          this.lastBar[identifier] &&
-          this.lastBar[identifier].time === tradeTs
-        ) {
-          // trades passed in save() contains some of the last batch (trade time = last bar time)
-          // recover exchange point of lastbar
-          bar[exchange] = this.lastBar[identifier]
-        } else {
-          // create new point
-          bar[exchange] = {
-            time: tradeTs,
-            exchange: exchange,
-            cbuy: 0,
-            csell: 0,
-            vbuy: 0,
-            vsell: 0,
-            lbuy: 0,
-            lsell: 0,
-            open: null,
-            high: null,
-            low: null,
-            close: null,
-          }
-
-          if (typeof this.lastClose[identifier] === 'number') {
-            // this bar open = last bar close (from last save or getReferencePoint on startup)
-            bar[exchange].open = bar[exchange].high = bar[exchange].low = bar[
-              exchange
-            ].close = this.lastClose[identifier]
+              if (typeof this.lastClose[tradeIdentifier] === 'number') {
+                // this bar open = last bar close (from last save or getReferencePoint on startup)
+                activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[
+                  tradeIdentifier
+                ].low = activeBars[tradeIdentifier].close = this.lastClose[tradeIdentifier]
+              }
+            }
           }
         }
       }
 
       if (trade.liquidation) {
+        liquidations.push(trade)
+      }
+
+      if (trade.liquidation) {
         // trade is a liquidation
-        bar[exchange]['l' + trade.side] += trade.price * trade.size
+        activeBars[tradeIdentifier]['l' + trade.side] += trade.price * trade.size
       } else {
-        if (bar[exchange].open === null) {
+        if (activeBars[tradeIdentifier].open === null) {
           // new bar without close in db, should only happen once
-          console.log(`[influx] register new serie ${exchange}:${pair}`)
-          bar[exchange].open = bar[exchange].high = bar[exchange].low = bar[
-            exchange
-          ].close = +trade.price
+          console.log(`[storage/${this.name}] register new serie ${tradeIdentifier}`)
+          activeBars[tradeIdentifier].open = activeBars[tradeIdentifier].high = activeBars[
+            tradeIdentifier
+          ].low = activeBars[tradeIdentifier].close = +trade.price
         }
 
-        bar[exchange].high = Math.max(bar[exchange].high, +trade.price)
-        bar[exchange].low = Math.min(bar[exchange].low, +trade.price)
-        bar[exchange].close = +trade.price
+        activeBars[tradeIdentifier].high = Math.max(activeBars[tradeIdentifier].high, +trade.price)
+        activeBars[tradeIdentifier].low = Math.min(activeBars[tradeIdentifier].low, +trade.price)
+        activeBars[tradeIdentifier].close = +trade.price
 
-        bar[exchange]['c' + trade.side]++
-        bar[exchange]['v' + trade.side] += trade.price * trade.size
+        activeBars[tradeIdentifier]['c' + trade.side]++
+        activeBars[tradeIdentifier]['v' + trade.side] += trade.price * trade.size
+      }
+
+      totalRange.from = Math.min(tradeFlooredTime, totalRange.from)
+      totalRange.to = Math.max(tradeFlooredTime, totalRange.to)
+
+      if (totalRange.pairs.indexOf(trade.pair) === -1) {
+        totalRange.pairs.push(trade.pair)
+      }
+
+      if (totalRange.exchanges.indexOf(trade.exchange) === -1) {
+        totalRange.exchanges.push(trade.exchange)
       }
     }
 
     const promises = []
 
-    if (bars.length) {
+    if (closedBars.length) {
       promises.push(
         this.influx.writePoints(
-          bars.map((chunk, index) => {
+          closedBars.map((bar, index) => {
             const fields = {
-              cbuy: chunk.cbuy,
-              csell: chunk.csell,
-              vbuy: chunk.vbuy,
-              vsell: chunk.vsell,
-              lbuy: chunk.lbuy,
-              lsell: chunk.lsell,
+              cbuy: bar.cbuy,
+              csell: bar.csell,
+              vbuy: bar.vbuy,
+              vsell: bar.vsell,
+              lbuy: bar.lbuy,
+              lsell: bar.lsell,
             }
 
-            if (chunk.close !== null) {
-              ;(fields.open = chunk.open),
-                (fields.high = chunk.high),
-                (fields.low = chunk.low),
-                (fields.close = chunk.close)
+            if (bar.close !== null) {
+              ;(fields.open = bar.open),
+                (fields.high = bar.high),
+                (fields.low = bar.low),
+                (fields.close = bar.close)
             }
 
-            if (chunk.high < chunk.open || chunk.high < chunk.close) {
-              console.log('inside high', chunk.high, chunk)
+            if (bar.high < bar.open || bar.high < bar.close) {
+              console.log('inside high', bar.high, bar)
             }
-            if (chunk.low > chunk.open || chunk.low > chunk.close) {
-              console.log('inside low', chunk.low, chunk)
+            if (bar.low > bar.open || bar.low > bar.close) {
+              console.log('inside low', bar.low, bar)
             }
 
             return {
               measurement:
                 'trades' +
-                (this.options.influxTimeframe
-                  ? '_' + getHms(this.options.influxTimeframe)
-                  : ''),
+                (this.options.influxTimeframe ? '_' + getHms(this.options.influxTimeframe) : ''),
               tags: {
-                exchange: chunk.exchange,
-                pair: pair,
+                exchange: bar.exchange,
+                pair: bar.pair,
               },
               fields: fields,
-              timestamp: +chunk.time,
+              timestamp: +bar.time,
             }
           }),
           {
@@ -337,7 +360,7 @@ class InfluxStorage {
                 measurement: 'liquidations',
                 tags: {
                   exchange: trade.exchange,
-                  pair: pair,
+                  pair: trade.pair,
                 },
                 fields: fields,
                 timestamp: +trade.timestamp,
@@ -351,7 +374,7 @@ class InfluxStorage {
     }
 
     return Promise.all(promises).then(() => ({
-      ...resampleRange,
+      ...totalRange,
     }))
   }
 
@@ -367,6 +390,8 @@ class InfluxStorage {
     if (exchanges.length) {
       query += ` AND exchange =~ /${exchanges.join('|')}/`
     }
+
+    console.log(query)
 
     return this.influx
       .query(query, {

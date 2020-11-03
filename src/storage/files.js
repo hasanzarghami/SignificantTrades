@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const { getHms, groupByPairs } = require('../helper')
+const { getHms, groupTrades } = require('../helper')
 
 class FilesStorage {
   constructor(options) {
@@ -19,76 +19,92 @@ class FilesStorage {
       fs.mkdirSync(this.options.filesLocation)
     }
 
-    for (let pair of this.options.pairs) {
-      const dir = `${this.options.filesLocation}/${pair}`
-
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir)
-      }
-    }
-
-    console.log(
-      `[storage/${this.name}] destination folder: ${this.options.filesLocation}`
-    )
+    console.log(`[storage/${this.name}] destination folder: ${this.options.filesLocation}`)
   }
 
   /**
    * Construit le nom du fichier a partir d'une date
    * BTCUSD_2018-12-01-22
    *
+   * @param {Date} identifier ex bitmex:XBTUSD, kraken:XBT/USD etc
    * @param {Date} date
    * @returns {string}
    * @memberof FilesStorage
    */
-  getBackupFilename(pair, date) {
-    let filename = `
-			${this.options.filesLocation}/${pair}/${pair}
-			_${date.getFullYear()}
-			-${('0' + (date.getMonth() + 1)).slice(-2)}
-			-${('0' + date.getDate()).slice(-2)}
-		`
+  getBackupFilename(identifier, date) {
+    let [, exchange, pair] = identifier.match(/([^:]*):(.*)/)
+
+    pair = pair.replace(/[/:]/g, '-')
+
+    const folderPart = `${this.options.filesLocation}/${exchange}/${pair}`
+    const datePart = `${date.getFullYear()}-${('0' + (date.getMonth() + 1)).slice(-2)}-${(
+      '0' + date.getDate()
+    ).slice(-2)}`
+
+    let file = `${folderPart}/${datePart}`
 
     if (this.options.filesInterval < 1000 * 60 * 60 * 24) {
-      filename += `-${('0' + date.getHours()).slice(-2)}`
+      file += `-${('0' + date.getHours()).slice(-2)}`
     }
 
     if (this.options.filesInterval < 1000 * 60 * 60) {
-      filename += `-${('0' + date.getMinutes()).slice(-2)}`
+      file += `-${('0' + date.getMinutes()).slice(-2)}`
     }
 
     if (this.options.filesInterval < 1000 * 60) {
-      filename += `-${('0' + date.getSeconds()).slice(-2)}`
+      file += `-${('0' + date.getSeconds()).slice(-2)}`
     }
 
-    return filename.replace(/\s+/g, '')
+    return file.replace(/\s+/g, '')
   }
 
-  addWritableStream(pair, ts) {
-    const date = new Date(+ts)
-    if (!(date instanceof Date) || !isFinite(date)) {
-      debugger
-    }
-    const name = this.getBackupFilename(pair, date)
+  async ensureDirectoryExists(target) {
+    const folder = target.substring(0, target.lastIndexOf('/'))
 
-    this.writableStreams[pair + ts] = {
+    return new Promise((resolve, reject) => {
+      fs.stat(folder, (err) => {
+        if (!err) {
+          resolve()
+        } else if (err.code === 'ENOENT') {
+          fs.mkdir(folder, { recursive: true }, (err) => {
+            if (err) {
+              reject(err)
+            }
+
+            console.log(`[storage/${this.name}] created target directory ${folder}`)
+
+            resolve()
+          })
+        } else {
+          reject(err)
+        }
+      })
+    })
+  }
+
+  async addWritableStream(identifier, ts) {
+    const date = new Date(+ts)
+    const filename = this.getBackupFilename(identifier, date)
+
+    await this.ensureDirectoryExists(filename)
+
+    this.writableStreams[identifier + ts] = {
       updatedAt: null,
-      stream: fs.createWriteStream(name, { flags: 'a' }),
+      stream: fs.createWriteStream(filename, { flags: 'a' }),
     }
 
     console.log(
-      `[storage/${
-        this.name
-      }] created writable stream ${date.toUTCString()} => ${name}`
+      `[storage/${this.name}] created writable stream ${date.toUTCString()} => ${filename}`
     )
   }
 
   reviewStreams() {
     const now = +new Date()
 
-    for (let pairTs in this.writableStreams) {
-      if (now - this.writableStreams[pairTs].updatedAt > 1000 * 60 * 10) {
-        this.writableStreams[pairTs].stream.end()
-        delete this.writableStreams[pairTs]
+    for (let id in this.writableStreams) {
+      if (now - this.writableStreams[id].updatedAt > 1000 * 60 * 10) {
+        this.writableStreams[id].stream.end()
+        delete this.writableStreams[id]
       }
     }
   }
@@ -96,7 +112,7 @@ class FilesStorage {
   save(trades) {
     const now = +new Date()
 
-    const groups = groupByPairs(trades)
+    const groups = groupTrades(trades, true)
 
     const output = Object.keys(groups).reduce((obj, pair) => {
       obj[pair] = {}
@@ -108,58 +124,48 @@ class FilesStorage {
         return resolve(true)
       }
 
-      for (let pair in groups) {
-        for (let i = 0; i < groups[pair].length; i++) {
-          const trade = groups[pair][i]
+      for (let identifier in groups) {
+        for (let i = 0; i < groups[identifier].length; i++) {
+          const trade = groups[identifier][i]
 
-          const ts =
-            Math.floor(trade.timestamp / this.options.filesInterval) *
-            this.options.filesInterval
+          const ts = Math.floor(trade[1] / this.options.filesInterval) * this.options.filesInterval
 
-          if (!output[pair][ts]) {
-            output[pair][ts] = ''
+          if (!output[identifier][ts]) {
+            output[identifier][ts] = ''
           }
 
-          const forWrite = [
-            trade.exchange,
-            trade.timestamp,
-            trade.price,
-            trade.size,
-            trade.side === 'buy' ? 1 : 0,
-          ]
-
-          if (trade.liquidation) {
-            forWrite.push(1)
-          }
-
-          output[pair][ts] += forWrite.join(' ') + '\n'
+          output[identifier][ts] += trade.join(' ') + '\n'
         }
       }
 
       const promises = []
 
-      for (let pair in output) {
-        for (let ts in output[pair]) {
-          if (!this.writableStreams[pair + ts]) {
-            this.addWritableStream(pair, ts)
-          }
-
+      for (let identifier in output) {
+        for (let ts in output[identifier]) {
           promises.push(
             new Promise((resolve) => {
-              this.writableStreams[pair + ts].stream.write(
-                output[pair][ts],
-                (err) => {
-                  if (err) {
-                    console.log(
-                      `[storage/${this.name}] stream.write encountered an error\n\t${err}`
-                    )
-                  } else {
-                    this.writableStreams[pair + ts].updatedAt = now
-                  }
+              let promiseOfWritableStram = Promise.resolve()
 
-                  resolve()
-                }
-              )
+              if (!this.writableStreams[identifier + ts]) {
+                promiseOfWritableStram = this.addWritableStream(identifier, ts)
+              }
+
+              promiseOfWritableStram.then(() => {
+                this.writableStreams[identifier + ts].stream.write(
+                  output[identifier][ts],
+                  (err) => {
+                    if (err) {
+                      console.log(
+                        `[storage/${this.name}] stream.write encountered an error\n\t${err}`
+                      )
+                    } else {
+                      this.writableStreams[identifier + ts].updatedAt = now
+                    }
+
+                    resolve()
+                  }
+                )
+              })
             })
           )
         }
@@ -173,58 +179,9 @@ class FilesStorage {
     })
   }
 
-  fetch({ from, to, pair }) {
-    const paths = []
-
-    for (
-      let i =
-        Math.floor(from / this.options.filesInterval) *
-        this.options.filesInterval;
-      i <= to;
-      i += this.options.filesInterval
-    ) {
-      paths.push(this.getBackupFilename(pair, new Date(i)))
-    }
-
-    if (!paths.length) {
-      return Promise.resolve([])
-    }
-
-    return Promise.all(
-      paths.map((filePath) => {
-        return new Promise((resolve, reject) => {
-          fs.readFile(filePath, 'utf8', (error, data) => {
-            if (error) {
-              // console.error(`[storage/${this.name}] unable to get ${path}\n\t`, error.message);
-              return resolve([])
-            }
-
-            data = data.trim().split('\n')
-
-            if (
-              data[0].split(' ')[1] >= from &&
-              data[data.length - 1].split(' ')[1] <= to
-            ) {
-              return resolve(data.map((row) => row.split(' ')))
-            } else {
-              const chunk = []
-
-              for (let j = 0; j < data.length; j++) {
-                const trade = data[j].split(' ')
-
-                if (trade[1] <= from || trade[1] >= to) {
-                  continue
-                }
-
-                chunk.push(trade)
-              }
-
-              return resolve(chunk)
-            }
-          })
-        })
-      })
-    ).then((chunks) => [].concat.apply([], chunks))
+  fetch() {
+    // unsupported
+    return Promise.resolve([])
   }
 }
 

@@ -24,9 +24,9 @@ class Huobi extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
-          if (this.types[this.match[pair]] === 'futures') {
+          if (this.types[pair] === 'futures') {
             return 'wss://www.hbdm.com/ws'
-          } else if (this.types[this.match[pair]] === 'swap') {
+          } else if (this.types[pair] === 'swap') {
             return 'wss://api.hbdm.com/swap-ws'
           } else {
             return 'wss://api.huobi.pro/ws'
@@ -38,43 +38,37 @@ class Huobi extends Exchange {
   }
 
   formatProducts(response) {
-    const products = {}
+    const products = []
     const specs = {}
     const types = {}
 
-    response.forEach((data, index) => {
-      data.data.forEach((product) => {
+    for (let data of response) {
+      let type = ['spot', 'futures', 'swap'][response.indexOf(data)]
+
+      for (let product of data.data) {
         let pair
 
-        switch (['spot', 'futures', 'swap'][index]) {
+        switch (type) {
           case 'spot':
-            pair = (
-              product['base-currency'] + product['quote-currency']
-            ).toUpperCase()
-            products[pair] = pair.toLowerCase()
-            types[products[pair]] = 'spot'
+            pair = (product['base-currency'] + product['quote-currency']).toLowerCase()
             break
           case 'futures':
-            pair =
-              product.symbol +
-              '_' +
-              this.contractTypesAliases[product.contract_type]
-            products[
-              product.symbol + 'USD' + '-' + product.contract_type.toUpperCase()
-            ] = pair
-            products[product.contract_code] = pair
-            specs[pair] = +product.contract_size
-            types[pair] = 'futures'
+            pair = product.symbol + '_' + this.contractTypesAliases[product.contract_type]
             break
           case 'swap':
-            products[product.symbol + 'USD' + '-PERPETUAL'] =
-              product.contract_code
-            types[product.contract_code] = 'swap'
-            specs[product.contract_code] = +product.contract_size
+            pair = product.contract_code
             break
         }
-      })
-    })
+
+        if (products.find((a) => a.toLowerCase() === pair.toLowerCase())) {
+          throw new Error('duplicate pair detected on huobi exchange (' + pair + ')')
+        }
+
+        types[pair] = type
+
+        products.push(pair)
+      }
+    }
 
     return {
       products,
@@ -93,12 +87,10 @@ class Huobi extends Exchange {
       return
     }
 
-    const remotePair = this.match[pair]
-
     api.send(
       JSON.stringify({
-        sub: 'market.' + remotePair + '.trade.detail',
-        id: remotePair,
+        sub: 'market.' + pair + '.trade.detail',
+        id: pair,
       })
     )
   }
@@ -113,12 +105,10 @@ class Huobi extends Exchange {
       return
     }
 
-    const remotePair = this.match[pair]
-
     api.send(
       JSON.stringify({
-        unsub: 'market.' + remotePair + '.trade.detail',
-        id: remotePair,
+        unsub: 'market.' + pair + '.trade.detail',
+        id: pair,
       })
     )
   }
@@ -135,13 +125,12 @@ class Huobi extends Exchange {
       api.send(JSON.stringify({ pong: json.ping }))
       return
     } else if (json.tick && json.tick.data && json.tick.data.length) {
-      const remotePair = json.ch
-        .replace(/market.(.*).trade.detail/, '$1')
+      const remotePair = json.ch.replace(/market.(.*).trade.detail/, '$1')
 
-      let name = this.id;
+      let name = this.id
 
       if (!this.types[remotePair]) {
-        debugger;
+        debugger
       }
 
       if (this.types[remotePair] !== 'spot') {

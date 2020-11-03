@@ -22,74 +22,61 @@ class Okex extends Exchange {
 
     this.options = Object.assign(
       {
-        url: 'wss://real.okex.com:8443/ws/v3'
+        url: 'wss://real.okex.com:8443/ws/v3',
       },
       this.options
     )
   }
 
-  getMatch(pair) {
-    if (this.products[pair]) {
-      return this.products[pair]
-    }
-
-    for (let id in this.products) {
-      if (this.products[id].toLowerCase() === pair.toLowerCase()) {
-        return this.products[id]
-      }
-    }
-
-    return false
-  }
-
   formatProducts(response) {
-    const products = {}
+    const products = []
     const specs = {}
     const types = {}
     const inversed = {}
 
-    response.forEach(data => {
+    for (let data of response) {
       for (let product of data) {
-        let pair;
+        const pair = product.instrument_id
 
         if (product.alias) {
           // futures
 
-          pair = product.base_currency + product.quote_currency + '-' + product.alias.toUpperCase()
-          
-          products[pair] = product.instrument_id
-          specs[product.instrument_id] = +product.contract_val
-          types[product.instrument_id] = 'futures'
+          specs[pair] = +product.contract_val
+          types[pair] = 'futures'
 
           if (product.is_inverse) {
-            inversed[product.instrument_id] = true
+            inversed[pair] = true
           }
         } else if (/-SWAP/.test(product.instrument_id)) {
           // swap
 
-          pair = product.base_currency + product.quote_currency + '-' + 'PERPETUAL'
-          
-          products[pair] = product.instrument_id
-          specs[product.instrument_id] = +product.contract_val
-          types[product.instrument_id] = 'swap'
+          specs[pair] = +product.contract_val
+          types[pair] = 'swap'
 
           if (product.is_inverse) {
-            inversed[product.instrument_id] = true
+            inversed[pair] = true
           }
         } else {
-          pair = product.base_currency + product.quote_currency
-
-          products[pair] = product.instrument_id
-          types[product.instrument_id] = 'spot'
+          types[pair] = 'spot'
         }
+
+        if (!pair) {
+          throw new Error('failed to parse product on okex exchange', product)
+        }
+
+        if (products.find((a) => a.toLowerCase() === pair.toLowerCase())) {
+          throw new Error('duplicate pair detected on okex exchange', pair)
+        }
+
+        products.push(pair)
       }
-    })
+    }
 
     return {
       products,
       specs,
       types,
-      inversed
+      inversed,
     }
   }
 
@@ -103,23 +90,23 @@ class Okex extends Exchange {
       return
     }
 
-    const type = this.types[this.match[pair]];
+    const type = this.types[pair]
 
     if (type !== 'spot') {
-      this.liquidationProducts.push(this.match[pair])
-      this.liquidationProductsReferences[this.match[pair]] = +new Date()
+      this.liquidationProducts.push(pair)
+      this.liquidationProductsReferences[pair] = +new Date()
 
       if (this.liquidationProducts.length === 1) {
         this.startLiquidationTimer()
       }
 
-      console.debug(`[${this.id}] listen ${this.match[pair]} for liquidations`)
+      console.debug(`[${this.id}] listen ${pair} for liquidations`)
     }
-    
+
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: [`${type}/trade:${this.match[pair]}`]
+        args: [`${type}/trade:${pair}`],
       })
     )
   }
@@ -134,22 +121,22 @@ class Okex extends Exchange {
       return
     }
 
-    const type = this.types[this.match[pair]];
+    const type = this.types[pair]
 
-    if (type !== 'spot' && this.liquidationProducts.indexOf(this.match[pair]) !== -1) {
-      this.liquidationProducts.splice(this.liquidationProducts.indexOf(this.match[pair]), 1)
+    if (type !== 'spot' && this.liquidationProducts.indexOf(pair) !== -1) {
+      this.liquidationProducts.splice(this.liquidationProducts.indexOf(pair), 1)
 
-      console.debug(`[${this.id}] unsubscribe ${this.match[pair]} from liquidations loop`)
+      console.debug(`[${this.id}] unsubscribe ${pair} from liquidations loop`)
 
       if (this.liquidationProducts.length === 0) {
         this.stopLiquidationTimer()
       }
     }
-    
+
     api.send(
       JSON.stringify({
         op: 'unsubscribe',
-        args: [`${type}/trade:${this.match[pair]}`]
+        args: [`${type}/trade:${pair}`],
       })
     )
   }
@@ -171,39 +158,44 @@ class Okex extends Exchange {
       return
     }
 
-    return this.emitTrades(api.id, json.data.map(trade => {
-      let size
-      let name = this.id
+    return this.emitTrades(
+      api.id,
+      json.data.map((trade) => {
+        let size
+        let name = this.id
 
-      if (typeof this.specs[trade.instrument_id] !== 'undefined') {
-        size = ((trade.size || trade.qty) * this.specs[trade.instrument_id]) / (this.inversed[trade.instrument_id] ? trade.price : 1)
-        name += '_futures';
-      } else {
-        size = trade.size
-      }
+        if (typeof this.specs[trade.instrument_id] !== 'undefined') {
+          size =
+            ((trade.size || trade.qty) * this.specs[trade.instrument_id]) /
+            (this.inversed[trade.instrument_id] ? trade.price : 1)
+          name += '_futures'
+        } else {
+          size = trade.size
+        }
 
-      return {
-        exchange: name,
-        pair: trade.instrument_id,
-        timestamp: +new Date(trade.timestamp),
-        price: +trade.price,
-        size: +size,
-        side: trade.side
-      }
-    }))
+        return {
+          exchange: name,
+          pair: trade.instrument_id,
+          timestamp: +new Date(trade.timestamp),
+          price: +trade.price,
+          size: +size,
+          side: trade.side,
+        }
+      })
+    )
   }
 
   onApiBinded(api) {
-    this.startKeepAlive(api);
+    this.startKeepAlive(api)
   }
 
   onApiUnbinded(api) {
-    this.stopKeepAlive(api);
+    this.stopKeepAlive(api)
   }
 
   startLiquidationTimer() {
     if (this._liquidationInterval) {
-      return;
+      return
     }
 
     console.debug(`[${this.id}] start liquidation timer`)
@@ -215,24 +207,26 @@ class Okex extends Exchange {
 
   stopLiquidationTimer() {
     if (!this._liquidationInterval) {
-      return;
+      return
     }
 
     console.debug(`[${this.id}] stop liquidation timer`)
 
     clearInterval(this._liquidationInterval)
 
-    delete this._liquidationInterval;
+    delete this._liquidationInterval
   }
 
   fetchLatestLiquidations() {
-    const productId = this.liquidationProducts[this._liquidationProductIndex++ % this.liquidationProducts.length]
+    const productId = this.liquidationProducts[
+      this._liquidationProductIndex++ % this.liquidationProducts.length
+    ]
 
     if (!productId) {
       debugger
     }
 
-    const productType = this.types[productId];
+    const productType = this.types[productId]
 
     this._liquidationAxiosHandler && this._liquidationAxiosHandler.cancel()
     this._liquidationAxiosHandler = axios.CancelToken.source()
@@ -241,14 +235,18 @@ class Okex extends Exchange {
       .get(
         `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`
       )
-      .then(response => {
-        if (!this.apis.length || !response.data || (response.data.error && response.data.error.length)) {
+      .then((response) => {
+        if (
+          !this.apis.length ||
+          !response.data ||
+          (response.data.error && response.data.error.length)
+        ) {
           console.log('getLiquidations => then => contain error(s)')
           console.error(response.data.error.join('\n'), productType, productId)
           return
         }
 
-        const liquidations = response.data.filter(a => {
+        const liquidations = response.data.filter((a) => {
           return (
             !this.liquidationProductsReferences[productId] ||
             +new Date(a.created_at) > this.liquidationProductsReferences[productId]
@@ -261,27 +259,33 @@ class Okex extends Exchange {
 
         this.liquidationProductsReferences[productId] = +new Date(liquidations[0].created_at)
 
-        this.emitLiquidations(this.apis[0].id, 
-          liquidations.map(trade => {
+        this.emitLiquidations(
+          this.apis[0].id,
+          liquidations.map((trade) => {
             const timestamp = +new Date(trade.created_at)
             const size = +((trade.size * this.specs[productId]) / trade.price).toFixed(8)
 
             return {
-              exchange: this.id + '_futures', 
+              exchange: this.id + '_futures',
               pair: productId,
-              timestamp, 
-              price: +trade.price, 
-              size: size, 
+              timestamp,
+              price: +trade.price,
+              size: size,
               side: trade.type === '4' ? 'buy' : 'sell',
-              liquidation: true
-            };
+              liquidation: true,
+            }
           })
         )
       })
-      .catch(error => {
-        console.log('catch', error.message, 'on', `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`);
+      .catch((error) => {
+        console.log(
+          'catch',
+          error.message,
+          'on',
+          `https://www.okex.com/api/${productType}/v3/instruments/${productId}/liquidation?status=1&limit=10`
+        )
         if (axios.isCancel(error)) {
-          console.log('axios.isCancel');
+          console.log('axios.isCancel')
           return
         }
 

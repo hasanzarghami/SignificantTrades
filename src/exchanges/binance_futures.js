@@ -1,27 +1,27 @@
 const Exchange = require('../exchange')
 
-class Binance extends Exchange {
+class BinanceFutures extends Exchange {
   constructor(options) {
     super(options)
 
-    this.id = 'binance'
+    this.id = 'binance_futures'
     this.lastSubscriptionId = 0
     this.subscriptions = {}
 
     this.endpoints = {
-      PRODUCTS: 'https://api.binance.com/api/v1/ticker/allPrices',
+      PRODUCTS: 'https://fapi.binance.com/fapi/v1/exchangeInfo',
     }
 
     this.options = Object.assign(
       {
-        url: () => `wss://stream.binance.com:9443/ws`,
+        url: () => 'wss://fstream.binance.com/ws',
       },
       this.options
     )
   }
 
   formatProducts(data) {
-    return data.map((product) => product.symbol.toLowerCase())
+    return data.symbols.map((product) => product.symbol.toLowerCase())
   }
 
   /**
@@ -36,7 +36,7 @@ class Binance extends Exchange {
 
     this.subscriptions[pair] = ++this.lastSubscriptionId
 
-    const params = [pair + '@trade']
+    const params = [pair + '@trade', pair + '@forceOrder']
 
     api.send(
       JSON.stringify({
@@ -60,7 +60,7 @@ class Binance extends Exchange {
       return
     }
 
-    const params = [pair + '@trade']
+    const params = [pair + '@trade', pair + '@forceOrder']
 
     api.send(
       JSON.stringify({
@@ -79,19 +79,35 @@ class Binance extends Exchange {
   onMessage(event, api) {
     const json = JSON.parse(event.data)
 
-    if (json.E) {
-      return this.emitTrades(api.id, [
-        {
-          exchange: this.id,
-          pair: json.s.toLowerCase(),
-          timestamp: json.E,
-          price: +json.p,
-          size: +json.q,
-          side: json.m ? 'sell' : 'buy',
-        },
-      ])
+    if (!json) {
+      return
+    } else {
+      if (json.e === 'trade' && json.X !== 'INSURANCE_FUND') {
+        return this.emitTrades(api.id, [
+          {
+            exchange: this.id,
+            pair: json.s.toLowerCase(),
+            timestamp: json.T,
+            price: +json.p,
+            size: +json.q,
+            side: json.m ? 'sell' : 'buy',
+          },
+        ])
+      } else if (json.e === 'forceOrder') {
+        return this.emitLiquidations(api.id, [
+          {
+            exchange: this.id,
+            pair: json.o.s.toLowerCase(),
+            timestamp: json.o.T,
+            price: +json.o.p,
+            size: +json.o.q,
+            side: json.o.S === 'BUY' ? 'buy' : 'sell',
+            liquidation: true,
+          },
+        ])
+      }
     }
   }
 }
 
-module.exports = Binance
+module.exports = BinanceFutures

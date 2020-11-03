@@ -23,23 +23,11 @@ class Bitmex extends Exchange {
   }
 
   formatProducts(data) {
-    const products = {}
-
-    for (let product of data) {
-      let pair = product.symbol.replace('XBT', 'BTC')
-
-      if (!product.expiry) {
-        pair = pair + '-PERPETUAL'
-      }
-
-      products[pair] = product.symbol
-
+    return data.map((product) => {
       this.pairCurrencies[product.symbol] = product.quoteCurrency
-    }
 
-    return {
-      products,
-    }
+      return product.symbol
+    })
   }
 
   /**
@@ -55,7 +43,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]],
+        args: ['trade:' + pair, 'liquidation:' + pair],
       })
     )
   }
@@ -73,7 +61,7 @@ class Bitmex extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade:' + this.match[pair], 'liquidation:' + this.match[pair]],
+        args: ['trade:' + pair, 'liquidation:' + pair],
       })
     )
   }
@@ -90,9 +78,7 @@ class Bitmex extends Exchange {
             pair: trade.symbol,
             timestamp: +new Date(),
             price: trade.price,
-            size:
-              trade.leavesQty /
-              (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            size: trade.leavesQty / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
             side: trade.side === 'Buy' ? 'buy' : 'sell',
             liquidation: true,
           }))
@@ -105,9 +91,7 @@ class Bitmex extends Exchange {
             pair: trade.symbol,
             timestamp: +new Date(trade.timestamp),
             price: trade.price,
-            size:
-              trade.size /
-              (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
+            size: trade.size / (this.pairCurrencies[trade.symbol] === 'USD' ? trade.price : 1),
             side: trade.side === 'Buy' ? 'buy' : 'sell',
           }))
         )

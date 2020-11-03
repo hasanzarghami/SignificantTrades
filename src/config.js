@@ -9,17 +9,24 @@ console.log(`[init] reading config.json...`)
 
 const DEFAULTS = {
   // default pairs we track
-  pairs: ['BTCUSD'],
-
-  // mapping can be useful if you track btcusdt but save it as BTCUSD
-  // respectively mappedPair => stringified regex query
-  mapping: {
-    /* 
-      // example:
-      "BTCUSD": "(?:XBT|BTC)-?USDT?-?(?:PERPETUAL)",
-      "ETHUSD": "ETH-?USDT?-?(?:PERPETUAL)"
-    */
-  },
+  pairs: [
+    'bitmex:XBTUSD',
+    'binance:btcusdt',
+    'bitstamp:btcusd',
+    'bitfinex:BTCUSD',
+    'binance_futures:btcusdt',
+    'coinbase:BTC-USD',
+    'poloniex:USDT_BTC',
+    'kraken:XBT/USD',
+    'okex:BTC-USDT',
+    'deribit:BTC-PERPETUAL',
+    'huobi:btcusdt',
+    'hitbtc:BTCUSD',
+    'ftx:BTC-PERP',
+    'bybit:BTCUSD',
+    'bitfinex:BTCF0:USTF0',
+    'okex:BTC-USD-SWAP',
+  ],
 
   // will connect to exchanges and subscribe to pairs on startup
   collect: true,
@@ -34,9 +41,6 @@ const DEFAULTS = {
   // (note) saving to storage is NOT impacted
   // (warning) will add +50ms delay for confirmation that trade actually came on same ms
   aggr: true,
-
-  // allow match remote pair
-  matchRemotePair: false,
 
   // restrict origin (now using regex)
   origin: '.*',
@@ -80,7 +84,18 @@ const DEFAULTS = {
   influxTimeframe: 10000,
 
   // downsampling
-  influxResampleTo: [1000 * 30, 1000 * 60, 1000 * 60 * 5, 1000 * 60 * 15, 1000 * 60 * 21, 1000 * 60 * 60, 1000 * 60 * 60 * 2, 1000 * 60 * 60 * 4, 1000 * 60 * 60 * 8, 1000 * 60 * 60 * 24],
+  influxResampleTo: [
+    1000 * 30,
+    1000 * 60,
+    1000 * 60 * 5,
+    1000 * 60 * 15,
+    1000 * 60 * 21,
+    1000 * 60 * 60,
+    1000 * 60 * 60 * 2,
+    1000 * 60 * 60 * 4,
+    1000 * 60 * 60 * 8,
+    1000 * 60 * 60 * 24,
+  ],
 
   // create new text file every N ms when storage is set to "file" (default 1h)
   filesInterval: 3600000,
@@ -127,8 +142,8 @@ config = Object.assign(DEFAULTS, config)
   (e.g. influxPreheatRange -> INFLUX_PREHEAT_RANGE)
  */
 
-Object.keys(config).forEach(k => {
-  config_to_env_key = decamelize(k, "_").toUpperCase()
+Object.keys(config).forEach((k) => {
+  config_to_env_key = decamelize(k, '_').toUpperCase()
   config_env_value = process.env[config_to_env_key]
   if (config_env_value) {
     config[k] = config_env_value
@@ -202,13 +217,7 @@ if (!Array.isArray(config.pairs)) {
 }
 
 if (!config.pairs.length) {
-  config.pairs = ['BTCUSD']
-}
-
-for (let localPair in config.mapping) {
-  if (typeof config.mapping[localPair] === 'string') {
-    config.mapping[localPair] = new RegExp(config.mapping[localPair], 'i')
-  }
+  config.pairs = ['bitmex:XBTUSD']
 }
 
 if (config.exchanges && typeof config.exchanges === 'string') {
@@ -225,9 +234,7 @@ if (!config.api && config.websocket) {
 }
 
 if (!config.storage && config.collect) {
-  console.warn(
-    `[warning!] server will not persist any of the data it is receiving`
-  )
+  console.warn(`[warning!] server will not persist any of the data it is receiving`)
 }
 
 if (!config.collect && !config.api) {
@@ -237,11 +244,7 @@ if (!config.collect && !config.api) {
 if (!config.storage && !config.collect && (config.websocket || config.api)) {
   console.warn(
     `[warning!] ${
-      config.websocket && config.api
-        ? 'ws and api are'
-        : config.websocket
-        ? 'ws is'
-        : 'api is'
+      config.websocket && config.api ? 'ws and api are' : config.websocket ? 'ws is' : 'api is'
     } enabled but neither storage or collect is enabled (may be useless)`
   )
 }

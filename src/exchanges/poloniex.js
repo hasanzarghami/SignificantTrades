@@ -21,13 +21,7 @@ class Poloniex extends Exchange {
   }
 
   formatProducts(data) {
-    let output = {}
-
-    Object.keys(data).forEach((a) => {
-      output[a.split('_').reverse().join('')] = a
-    })
-
-    return output
+    return Object.keys(data)
   }
 
   /**
@@ -43,7 +37,7 @@ class Poloniex extends Exchange {
     api.send(
       JSON.stringify({
         command: 'subscribe',
-        channel: this.match[pair],
+        channel: pair,
       })
     )
   }
@@ -61,7 +55,7 @@ class Poloniex extends Exchange {
     api.send(
       JSON.stringify({
         command: 'unsubscribe',
-        channel: this.match[pair],
+        channel: pair,
       })
     )
   }

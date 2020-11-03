@@ -11,18 +11,12 @@ class Bybit extends Exchange {
       PRODUCTS: 'https://api.bybit.com/v2/public/symbols',
     }
 
-    this.mapping = (pair) => {
-      if (this.pairs.indexOf(pair) !== -1) {
-        return pair
-      }
-
-      return false
-    }
-
     this.options = Object.assign(
       {
         url: (pair) => {
-          return pair.indexOf('USDT') !== -1 ? 'wss://stream.bybit.com/realtime_public' : 'wss://stream.bybit.com/realtime'
+          return pair.indexOf('USDT') !== -1
+            ? 'wss://stream.bybit.com/realtime_public'
+            : 'wss://stream.bybit.com/realtime'
         },
       },
       this.options
@@ -30,10 +24,7 @@ class Bybit extends Exchange {
   }
 
   formatProducts(data) {
-    return data.result.reduce((output, product) => {
-      output[product.name + '-PERPETUAL'] = product.name
-      return output
-    }, {})
+    return data.result.map((product) => product.name)
   }
 
   /**
@@ -49,7 +40,7 @@ class Bybit extends Exchange {
     api.send(
       JSON.stringify({
         op: 'subscribe',
-        args: ['trade.' + this.match[pair]],
+        args: ['trade.' + pair],
       })
     )
   }
@@ -67,7 +58,7 @@ class Bybit extends Exchange {
     api.send(
       JSON.stringify({
         op: 'unsubscribe',
-        args: ['trade.' + this.match[pair]],
+        args: ['trade.' + pair],
       })
     )
   }
@@ -82,7 +73,7 @@ class Bybit extends Exchange {
     return this.emitTrades(
       api.id,
       json.data.map((trade) => {
-        const size =  /USDT$/.test(trade.symbol) ? trade.size : trade.size / trade.price
+        const size = /USDT$/.test(trade.symbol) ? trade.size : trade.size / trade.price
 
         return {
           exchange: this.id,
@@ -97,11 +88,11 @@ class Bybit extends Exchange {
   }
 
   onApiBinded(api) {
-    this.startKeepAlive(api, {op: 'ping'}, 45000);
+    this.startKeepAlive(api, { op: 'ping' }, 45000)
   }
 
   onApiUnbinded(api) {
-    this.stopKeepAlive(api);
+    this.stopKeepAlive(api)
   }
 }
 

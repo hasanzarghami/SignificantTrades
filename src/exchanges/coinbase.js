@@ -1,10 +1,10 @@
 const Exchange = require('../exchange')
-const WebSocket = require('ws')
-class Gdax extends Exchange {
+
+class Coinbase extends Exchange {
   constructor(options) {
     super(options)
 
-    this.id = 'gdax'
+    this.id = 'coinbase'
 
     this.endpoints = {
       PRODUCTS: 'https://api.pro.coinbase.com/products',
@@ -19,15 +19,7 @@ class Gdax extends Exchange {
   }
 
   formatProducts(data) {
-    const products = {}
-
-    for (let symbol of data) {
-      products[symbol.id.replace('-', '')] = symbol.id
-    }
-
-    return {
-      products
-    }
+    return data.map((product) => product.id)
   }
 
   /**
@@ -43,7 +35,7 @@ class Gdax extends Exchange {
     api.send(
       JSON.stringify({
         type: 'subscribe',
-        channels: [{ name: 'matches', product_ids: [this.match[pair]] }],
+        channels: [{ name: 'matches', product_ids: [pair] }],
       })
     )
   }
@@ -61,7 +53,7 @@ class Gdax extends Exchange {
     api.send(
       JSON.stringify({
         type: 'unsubscribe',
-        channels: [{ name: 'matches', product_ids: [this.match[pair]] }],
+        channels: [{ name: 'matches', product_ids: [pair] }],
       })
     )
   }
@@ -84,4 +76,4 @@ class Gdax extends Exchange {
   }
 }
 
-module.exports = Gdax
+module.exports = Coinbase

@@ -12,33 +12,23 @@ module.exports = {
   },
 
   parsePairsFromWsRequest(req, defaultPair) {
-    let pairs = req.url.substr(1);
+    let pairs = req.url.substr(1)
 
     if (!pairs || !pairs.length) {
       if (defaultPair) {
-        pairs = [defaultPair];
+        pairs = [defaultPair]
       } else {
-        pairs = [];
+        pairs = []
       }
     } else {
-      pairs = pairs.split('+').map(a => a.toUpperCase())
+      pairs = pairs.split('+').map((a) => a.toUpperCase())
     }
 
-    return pairs;
-  },
-
-  mapPair(pair) {
-    for (let localPair in config.mapping) {
-      if (config.mapping[localPair].test(pair)) {
-        return localPair
-      }
-    }
-
-    return pair
+    return pairs
   },
 
   ID() {
-    return Math.random().toString(36).substr(2, 9);
+    return Math.random().toString(36).substr(2, 9)
   },
 
   getHms(timestamp, round) {
@@ -62,46 +52,42 @@ module.exports = {
   ago(timestamp) {
     const seconds = Math.floor((new Date() - timestamp) / 1000)
     let interval, output
-  
+
     if ((interval = Math.floor(seconds / 31536000)) > 1) output = interval + 'y'
     else if ((interval = Math.floor(seconds / 2592000)) >= 1) output = interval + 'm'
     else if ((interval = Math.floor(seconds / 86400)) >= 1) output = interval + 'd'
     else if ((interval = Math.floor(seconds / 3600)) >= 1) output = interval + 'h'
     else if ((interval = Math.floor(seconds / 60)) >= 1) output = interval + 'm'
     else output = Math.ceil(seconds) + 's'
-  
+
     return output
   },
 
-  groupByPairs(trades, toArray = false) {
-    const groups = {};
+  groupTrades(trades, toArray = false) {
+    const groups = {}
 
     for (let i = 0; i < trades.length; i++) {
-      const trade = trades[i];
-      if (!groups[trade.pair]) {
-        groups[trade.pair] = [];
+      const trade = trades[i]
+      const identifier = trade.exchange + ':' + trade.pair
+
+      if (!groups[identifier]) {
+        groups[identifier] = []
       }
 
       if (!toArray) {
-        groups[trade.pair].push(trade)
+        groups[identifier].push(trade)
       } else {
-        const toPush = [
-          trade.exchange,
-          trade.timestamp,
-          trade.price,
-          trade.size,
-          trade.side === 'buy' ? 1 : 0
-        ];
+        const toPush = [trade.pair, trade.timestamp, trade.price, trade.size, trade.side]
 
         if (trade.liquidation) {
-          toPush.push(1);
+          toPush.push(1)
         }
 
-        groups[trade.pair].push(toPush)
+        groups[identifier].push(toPush)
       }
     }
 
-    return groups;
+    return groups
   },
 
   formatAmount(amount, decimals) {
@@ -126,5 +112,5 @@ module.exports = {
     } else {
       return amount
     }
-  }
+  },
 }

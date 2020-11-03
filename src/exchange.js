@@ -4,7 +4,7 @@ const WebSocket = require('ws')
 const config = require('./config')
 const pako = require('pako')
 
-const { ID, mapPair, getHms } = require('./helper')
+const { ID, getHms } = require('./helper')
 
 require('./typedef')
 
@@ -21,7 +21,7 @@ class Exchange extends EventEmitter {
     this.keepAliveIntervals = {}
 
     /**
-     * localPairs
+     * array of currently connected pairs on the exchange
      * @type {string[]}
      */
     this.pairs = []
@@ -31,12 +31,6 @@ class Exchange extends EventEmitter {
      * @type {WebSocket[]}
      */
     this.apis = []
-
-    /**
-     * Active match (localPair => remotePair)
-     * @type {{[localPair: string]: string}}
-     */
-    this.match = {}
 
     /**
      * promises of ws. opens
@@ -49,12 +43,6 @@ class Exchange extends EventEmitter {
      * @type {{[url: string]: {promise: Promise<void>, resolver: Function}}}
      */
     this.disconnecting = {}
-
-    /**
-     * Cached mapping (remotePair => localPair)
-     * @type {{[remotePair: string]: string]}}
-     */
-    this.mapping = {}
 
     /**
      * Reconnection timeout delay by apiUrl
@@ -87,29 +75,29 @@ class Exchange extends EventEmitter {
    * Get exchange equivalent for a given pair
    * @param {string} pair
    */
-  getMatch(pair) {
-    if (!this.products) {
+  isMatching(pair) {
+    if (!this.products || !this.products.length) {
+      console.debug(`[${this.id}] couldn't match ${pair}, exchange has no products`)
       return false
     }
 
-    if (Array.isArray(this.products) && this.products.indexOf(pair) !== -1) {
-      return pair
-    } else  {
-      let remotePair = this.products[pair]
+    if (this.products.indexOf(pair) === -1) {
+      console.debug(`[${this.id}] couldn't match ${pair}`)
 
-      if (!remotePair && config.matchRemotePair) {
-        for (let name in this.products) {
-          if (pair === this.products[name]) {
-            remotePair = this.products[name]
-            break
-          }
-        }
+      const caseInsencitiveMatch = this.products.find(
+        (exchangePair) =>
+          exchangePair.toLowerCase().replace(/[^a-z]/g, '') ===
+          pair.toLowerCase().replace(/[^a-z]/g, '')
+      )
+
+      if (caseInsencitiveMatch.length) {
+        console.debug(`\t did you write it correctly ? (found ${caseInsencitiveMatch.join(', ')})`)
       }
 
-      return remotePair || false
+      return false
     }
 
-    return false
+    return true
   }
 
   /**
@@ -127,33 +115,23 @@ class Exchange extends EventEmitter {
    * @returns {Promise<WebSocket>}
    */
   async link(pair) {
-    const match = this.getMatch(pair)
+    pair = pair.replace(/[^:]*:/, '')
 
-    if (!match) {
+    if (!this.isMatching(pair)) {
       return Promise.reject(`${this.id} couldn't match with ${pair}`)
     }
 
-    for (let localPair in this.match) {
-      if (
-        pair === localPair ||
-        (this.match[localPair] === match &&
-          this.getUrl(pair) === this.getUrl(localPair))
-      ) {
-        return Promise.reject(
-          `${this.id} already connected to ${pair} (${this.id}:${match})`
-        )
-      }
+    if (this.pairs.indexOf(pair) !== -1) {
+      return Promise.reject(`${this.id} already connected to ${pair}`)
     }
 
-    this.pairs.push(match)
-    this.match[pair] = match
+    this.pairs.push(pair)
 
     console.debug(`[${this.id}] linking ${pair}`)
 
     const api = await this.bindApi(pair)
 
-    this.emit('match', pair, match, api.id)
-
+    this.emit('connected', pair, api.id)
     await this.subscribe(api, pair)
 
     return api
@@ -165,29 +143,27 @@ class Exchange extends EventEmitter {
    * @returns {Promise<void>}
    */
   async unlink(pair) {
+    pair = pair.replace(/.*:/, '')
+
     const api = this.getActiveApiByPair(pair)
 
-    if (!this.match[pair] || this.pairs.indexOf(this.match[pair]) === -1) {
+    if (this.pairs.indexOf(pair) === -1) {
       return Promise.resolve()
     }
 
     if (!api) {
       return Promise.reject(
-        new Error(
-          `couldn't find active api for pair ${pair} in exchange ${this.id}`
-        )
+        new Error(`couldn't find active api for pair ${pair} in exchange ${this.id}`)
       )
     }
 
     console.debug(`[${this.id}] unlinking ${pair}`)
 
-    // call exchange specific unsubscribe function
     await this.unsubscribe(api, pair)
 
-    this.emit('unmatch', pair, this.match[pair], api.id)
+    this.pairs.splice(this.pairs.indexOf(pair), 1)
 
-    this.pairs.splice(this.pairs.indexOf(this.match[pair]), 1)
-    delete this.match[pair]
+    this.emit('disconnected', pair, api.id)
 
     if (!api._pairs.length) {
       return this.unbindApi(api)
@@ -227,9 +203,7 @@ class Exchange extends EventEmitter {
       api = new WebSocket(url)
       api.id = ID()
 
-      console.debug(
-        `[${this.id}] initiate new ws connection ${url} (${api.id}) for pair ${pair}`
-      )
+      console.debug(`[${this.id}] initiate new ws connection ${url} (${api.id}) for pair ${pair}`)
 
       api.binaryType = 'arraybuffer'
 
@@ -240,18 +214,15 @@ class Exchange extends EventEmitter {
       api._send = api.send
       api.send = (data) => {
         if (api.readyState !== WebSocket.OPEN) {
-          console.error(
-            `[${this.id}] attempted to send data to an non-OPEN websocket api`,
-            data
-          )
+          console.error(`[${this.id}] attempted to send data to an non-OPEN websocket api`, data)
           return
         }
 
         if (!/ping|pong/.test(data)) {
           console.debug(
-            `[${this.id}] sending ${data.substr(0, 64)}${
-              data.length > 64 ? '...' : ''
-            } to ${api.url}`
+            `[${this.id}] sending ${data.substr(0, 64)}${data.length > 64 ? '...' : ''} to ${
+              api.url
+            }`
           )
         }
 
@@ -281,7 +252,7 @@ class Exchange extends EventEmitter {
           if (!json) {
             return
           }
-          
+
           this.lastMessages.push(json)
 
           if (this.lastMessages.length > 5) {
@@ -353,8 +324,7 @@ class Exchange extends EventEmitter {
       this.connecting[url] = {}
 
       toResolve = new Promise((resolve, reject) => {
-        this.connecting[url].resolver = (success) =>
-          success ? resolve(api) : reject()
+        this.connecting[url].resolver = (success) => (success ? resolve(api) : reject())
       })
 
       this.connecting[url].promise = toResolve
@@ -395,8 +365,7 @@ class Exchange extends EventEmitter {
           api.close()
         }
 
-        this.disconnecting[api.url].resolver = (success) =>
-          success ? resolve() : reject()
+        this.disconnecting[api.url].resolver = (success) => (success ? resolve() : reject())
       })
 
       this.disconnecting[api.url].promise = promiseOfClose
@@ -416,11 +385,7 @@ class Exchange extends EventEmitter {
    * @param {WebSocket} api
    */
   reconnectApi(api) {
-    console.debug(
-      `[${this.id}] reconnect api (url: ${api.url}, _pairs: ${api._pairs.join(
-        ', '
-      )})`
-    )
+    console.debug(`[${this.id}] reconnect api (url: ${api.url}, _pairs: ${api._pairs.join(', ')})`)
 
     this.reconnectPairs(api._pairs)
   }
@@ -447,18 +412,18 @@ class Exchange extends EventEmitter {
   }
 
   /**
-   * Ensure product are fetched and connect to pairs
+   * Ensure product are fetched then connect to given pairs
    * @returns {Promise<any>}
    */
-  async fetchAndConnect(pairs) {
+  async fetchProductsAndConnect(pairs) {
     try {
       await this.fetchProducts()
     } catch (error) {
-      this.reconnectionDelay.fetch = this.schedule(
+      this.reconnectionDelay.fetchProducts = this.schedule(
         () => {
-          this.fetchAndConnect(pairs)
+          this.fetchProductsAndConnect(pairs)
         },
-        this.reconnectionDelay['fetch'],
+        this.reconnectionDelay.fetchProducts,
         4000,
         1.5,
         1000 * 60 * 3
@@ -514,7 +479,7 @@ class Exchange extends EventEmitter {
             method: method,
           })
           .then((response) => response.data)
-          .catch(err => {
+          .catch((err) => {
             console.log(`[${this.id}] failed to fetch ${target}\n\t->`, err.message)
             throw err
           })
@@ -532,10 +497,7 @@ class Exchange extends EventEmitter {
     if (data) {
       const formatedProducts = this.formatProducts(data) || []
 
-      if (
-        typeof formatedProducts === 'object' &&
-        formatedProducts.hasOwnProperty('products')
-      ) {
+      if (typeof formatedProducts === 'object' && formatedProducts.hasOwnProperty('products')) {
         for (let key in formatedProducts) {
           this[key] = formatedProducts[key]
         }
@@ -703,25 +665,6 @@ class Exchange extends EventEmitter {
     })
 
     return true
-  }
-
-  mapPair(remotePair) {
-    if (this.mapping[remotePair]) {
-      return this.mapping[remotePair]
-    }
-
-    let pair = remotePair
-
-    for (let localPair in this.match) {
-      if (this.match[localPair] === pair) {
-        pair = localPair
-        break
-      }
-    }
-
-    this.mapping[remotePair] = mapPair(pair).toUpperCase()
-
-    return this.mapping[remotePair]
   }
 
   startKeepAlive(api, payload = { event: 'ping' }, every = 30000) {

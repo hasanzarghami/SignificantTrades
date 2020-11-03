@@ -21,14 +21,7 @@ class Deribit extends Exchange {
   }
 
   formatProducts(data) {
-    return data.result.reduce((output, product) => {
-      output[
-        product.settlement === 'perpetual'
-          ? product.baseCurrency + product.currency + '-PERPETUAL'
-          : product.instrumentName
-      ] = product.instrumentName
-      return output
-    }, {})
+    return data.result.map((product) => product.instrumentName)
   }
 
   /**
@@ -45,7 +38,7 @@ class Deribit extends Exchange {
       JSON.stringify({
         method: 'public/subscribe',
         params: {
-          channels: ['trades.' + this.match[pair] + '.raw'],
+          channels: ['trades.' + pair + '.raw'],
         },
       })
     )
@@ -65,7 +58,7 @@ class Deribit extends Exchange {
       JSON.stringify({
         method: 'public/unsubscribe',
         params: {
-          channels: ['trades.' + this.match[pair] + '.raw'],
+          channels: ['trades.' + pair + '.raw'],
         },
       })
     )
@@ -74,12 +67,7 @@ class Deribit extends Exchange {
   onMessage(event, api) {
     const json = JSON.parse(event.data)
 
-    if (
-      !json ||
-      !json.params ||
-      !json.params.data ||
-      !json.params.data.length
-    ) {
+    if (!json || !json.params || !json.params.data || !json.params.data.length) {
       return
     }
 

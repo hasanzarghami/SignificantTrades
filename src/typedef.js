@@ -8,18 +8,26 @@
  * A bar
  * @typedef  Bar
  * @type {{
-		time: number,
-		exchange: string,
-		pair: string,
-		cbuy: number,
-		csell: number,
-		vbuy: number,
-		vsell: number,
-		lbuy: number,
-		lsell: number,
-		open: number,
-		high: number,
-		low: number,
-		close: number
-	 }}
- */
+  time: number,
+  exchange: string,
+  pair: string,
+  cbuy: number,
+  csell: number,
+  vbuy: number,
+  vsell: number,
+  lbuy: number,
+  lsell: number,
+  open: number,
+  high: number,
+  low: number,
+  close: number
+ }}
+*/
+/**
+ * A range
+ * @typedef  TimeRange
+ * @type {{
+  from: number,
+  to: number
+ }}
+*/

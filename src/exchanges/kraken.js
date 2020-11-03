@@ -18,7 +18,7 @@ class Kraken extends Exchange {
     this.options = Object.assign(
       {
         url: (pair) => {
-          if (typeof this.specs[this.match[pair]] !== 'undefined') {
+          if (typeof this.specs[pair] !== 'undefined') {
             return 'wss://futures.kraken.com/ws/v1'
           } else {
             return 'wss://ws.kraken.com'
@@ -30,38 +30,38 @@ class Kraken extends Exchange {
   }
 
   formatProducts(response) {
-    const products = {}
+    const products = []
     const specs = {}
 
-    response.forEach((data, index) => {
+    for (let data of response) {
       if (data.instruments) {
         for (let product of data.instruments) {
           if (!product.tradeable) {
             continue
           }
 
-          const remotePair = product.symbol.toUpperCase()
-          let pair = remotePair
+          const pair = product.symbol.toUpperCase()
 
-          if (/^PI_/i.test(pair)) {
-            pair = pair.replace(/^PI_/, '').replace('XBT', 'BTC') + '-PERPETUAL'
+          specs[pair] = product.contractSize
+
+          if (products.find((a) => a.toLowerCase() === product.symbol.toLowerCase())) {
+            throw new Error('duplicate pair detected on kraken exchange (' + pair + ')')
           }
-
-          if (/^FI_/i.test(pair)) {
-            pair = pair.replace(/^FI_/, '').replace('XBT', 'BTC')
-          }
-
-          specs[remotePair] = product.contractSize
-          products[pair] = remotePair
+          products.push(pair)
         }
       } else if (data.result) {
         for (let id in data.result) {
           if (data.result[id].wsname) {
-            products[data.result[id].altname.replace('XBT', 'BTC')] = data.result[id].wsname
+            if (products.find((a) => a.toLowerCase() === data.result[id].wsname.toLowerCase())) {
+              throw new Error(
+                'duplicate pair detected on kraken exchange (' + data.result[id].wsname + ')'
+              )
+            }
+            products.push(data.result[id].wsname)
           }
         }
       }
-    })
+    }
 
     return {
       products,
@@ -83,13 +83,13 @@ class Kraken extends Exchange {
       event: 'subscribe',
     }
 
-    if (typeof this.specs[this.match[pair]] !== 'undefined') {
+    if (typeof this.specs[pair] !== 'undefined') {
       // futures contract
-      event.product_ids = [this.match[pair]]
+      event.product_ids = [pair]
       event.feed = 'trade'
     } else {
       // spot
-      event.pair = [this.match[pair]]
+      event.pair = [pair]
       event.subscription = {
         name: 'trade',
       }
@@ -114,11 +114,11 @@ class Kraken extends Exchange {
 
     if (typeof this.specs[pair] !== 'undefined') {
       // futures contract
-      event.product_ids = [this.match[pair]]
+      event.product_ids = [pair]
       event.feed = 'trade'
     } else {
       // spot
-      event.pair = [this.match[pair]]
+      event.pair = [pair]
       event.subscription = {
         name: 'trade',
       }

@@ -21,16 +21,8 @@ class Bitstamp extends Exchange {
     )
   }
 
-  getMatch(pair) {
-    if (this.products.indexOf(pair) !== -1) {
-      return pair.toLowerCase()
-    }
-
-    return false
-  }
-
   formatProducts(data) {
-    return data.map((a) => a.name.replace('/', ''))
+    return data.map((a) => a.url_symbol)
   }
 
   /**
@@ -47,7 +39,7 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:subscribe',
         data: {
-          channel: 'live_trades_' + this.match[pair],
+          channel: 'live_trades_' + pair,
         },
       })
     )
@@ -67,7 +59,7 @@ class Bitstamp extends Exchange {
       JSON.stringify({
         event: 'bts:unsubscribe',
         data: {
-          channel: 'live_trades_' + this.match[pair],
+          channel: 'live_trades_' + pair,
         },
       })
     )

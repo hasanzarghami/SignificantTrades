@@ -22,19 +22,7 @@ class Ftx extends Exchange {
   }
 
   formatProducts(data) {
-    return data.result.reduce((obj, product) => {
-      if (product.type === 'spot') {
-        obj[product.name.replace('/', '')] = product.name
-      } else if (product.type === 'future') {
-        if (/PERP$/.test(product.name)) {
-          obj[product.name.replace('-', 'USD-').replace('PERP', 'PERPETUAL')] = product.name
-        } else {
-          obj[product.name.replace('-', 'USD-')] = product.name
-        }
-      }
-
-      return obj
-    }, {})
+    return data.result.map((product) => product.name)
   }
 
   /**
@@ -51,7 +39,7 @@ class Ftx extends Exchange {
       JSON.stringify({
         op: 'subscribe',
         channel: 'trades',
-        market: this.match[pair],
+        market: pair,
       })
     )
   }
@@ -70,14 +58,14 @@ class Ftx extends Exchange {
       JSON.stringify({
         op: 'unsubscribe',
         channel: 'trades',
-        market: this.match[pair],
+        market: pair,
       })
     )
   }
 
   onMessage(event, api) {
     const json = JSON.parse(event.data)
-    
+
     if (!json || !json.data || !json.data.length) {
       return
     }
@@ -104,11 +92,11 @@ class Ftx extends Exchange {
   }
 
   onApiBinded(api) {
-    this.startKeepAlive(api, {op: 'ping'}, 15000);
+    this.startKeepAlive(api, { op: 'ping' }, 15000)
   }
 
   onApiUnbinded(api) {
-    this.stopKeepAlive(api);
+    this.stopKeepAlive(api)
   }
 }
 

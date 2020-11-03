@@ -20,7 +20,7 @@ class Huobi extends Exchange {
   }
 
   formatProducts(data) {
-    return data.map((a) => a.id)
+    return data.map((product) => product.id)
   }
 
   /**
@@ -37,7 +37,7 @@ class Huobi extends Exchange {
       JSON.stringify({
         method: 'subscribeTrades',
         params: {
-          symbol: this.match[pair],
+          symbol: pair,
         },
       })
     )
@@ -57,7 +57,7 @@ class Huobi extends Exchange {
       JSON.stringify({
         method: 'unsubscribeTrades',
         params: {
-          symbol: this.match[pair],
+          symbol: pair,
         },
       })
     )

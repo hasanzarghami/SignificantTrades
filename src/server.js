@@ -1,14 +1,7 @@
 const EventEmitter = require('events')
 const WebSocket = require('ws')
 const fs = require('fs')
-const {
-  getIp,
-  getHms,
-  parsePairsFromWsRequest,
-  mapPair,
-  groupByPairs,
-  ago,
-} = require('./helper')
+const { getIp, getHms, parsePairsFromWsRequest, groupTrades, ago } = require('./helper')
 const express = require('express')
 const path = require('path')
 const rateLimit = require('express-rate-limit')
@@ -29,10 +22,10 @@ class Server extends EventEmitter {
     this.chunk = []
 
     /**
-     * Keep track of all (previously used or active) matches by remote symbol
-     * @type {{[remotePair: string]: {mapped: string, local: string, remote: string}}}
+     * Keep track of all active connections (exchange + symbol)
+     * @type {{[exchangeAndPair: string]: {exchange: string, pair: string, apiId: string, hit: number, ping: number}}}
      */
-    this.matchs = {}
+    this.connections = {}
 
     /**
      * delayed trades ready to be broadcasted next interval (see _broadcastDelayedTradesInterval)
@@ -65,10 +58,8 @@ class Server extends EventEmitter {
             ? `\n\twill broadcast trades every ${this.options.delay}ms`
             : ''
         )
-        console.log(
-          `\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`
-        )
-        
+        console.log(`\tconnect to -> ${this.exchanges.map((a) => a.id).join(', ')}`)
+
         this.handleExchangesEvents()
         this.connectExchanges()
 
@@ -175,10 +166,7 @@ class Server extends EventEmitter {
 
     const now = new Date()
     let delay =
-      Math.ceil(now / this.options.backupInterval) *
-        this.options.backupInterval -
-      now -
-      20
+      Math.ceil(now / this.options.backupInterval) * this.options.backupInterval - now - 20
 
     if (delay < 1000) {
       delay += this.options.backupInterval
@@ -204,9 +192,7 @@ class Server extends EventEmitter {
           if (this.indexedProducts[pair]) {
             this.indexedProducts[pair].count++
 
-            if (
-              this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1
-            ) {
+            if (this.indexedProducts[pair].exchanges.indexOf(exchange.id) === -1) {
               this.indexedProducts[pair].exchanges.push(exchange.id)
             }
           } else {
@@ -228,23 +214,37 @@ class Server extends EventEmitter {
         })
       })
 
-      exchange.on('unmatch', (localPair, remotePair, source) => {
-        if (this.matchs[source + remotePair]) {
-          delete this.matchs[source + remotePair]
-        }
-      })
+      exchange.on('disconnected', (pair, apiId) => {
+        const id = exchange.id + ':' + pair
 
-      exchange.on('match', (localPair, remotePair, source) => {
-        if (this.matchs[remotePair]) {
+        if (!this.connections[id]) {
+          throw new Error(
+            `[server] couldn't delete connection ${id} because the connections[${id}] does not exists`
+          )
           return
         }
 
-        this.matchs[source + remotePair] = {
-          source,
+        console.debug(`[server] deleted connection ${id}`)
+
+        delete this.connections[id]
+      })
+
+      exchange.on('connected', (pair, apiId) => {
+        const id = exchange.id + ':' + pair
+
+        if (this.connections[id]) {
+          throw new Error(
+            `[server] couldn't register connection ${id} because the connections[${id}] does not exists`
+          )
+          return
+        }
+
+        console.debug(`[server] registered connection ${id}`)
+
+        this.connections[id] = {
+          apiId,
           exchange: exchange.id,
-          remote: remotePair,
-          local: localPair,
-          mapped: mapPair(localPair),
+          pair: pair,
           hit: 0,
           timestamp: +new Date(),
         }
@@ -279,9 +279,7 @@ class Server extends EventEmitter {
     })
 
     this.wss.on('listening', () => {
-      console.log(
-        `[server] websocket server listening at localhost:${this.options.port}`
-      )
+      console.log(`[server] websocket server listening at localhost:${this.options.port}`)
     })
 
     this.wss.on('connection', (ws, req) => {
@@ -296,9 +294,7 @@ class Server extends EventEmitter {
 
       const data = {
         type: 'welcome',
-        supportedPairs: Object.values(this.matchs)
-          .map((a) => a.mapped)
-          .filter((v, i, a) => a.indexOf(v) === i),
+        supportedPairs: Object.values(this.connection).map((a) => a.exchange + ':' + a.pair),
         timestamp: +new Date(),
         exchanges: this.exchanges.map((exchange) => {
           return {
@@ -309,9 +305,7 @@ class Server extends EventEmitter {
       }
 
       console.log(
-        `[${ip}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${
-          req.headers['origin']
-        }`
+        `[${ip}/ws/${ws.pairs.join('+')}] joined ${req.url} from ${req.headers['origin']}`
       )
 
       this.emit('connections', this.wss.clients.size)
@@ -405,22 +399,15 @@ class Server extends EventEmitter {
     app.all('/*', (req, res, next) => {
       var ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
 
-      if (
-        req.headers['origin'] &&
-        !new RegExp(this.options.origin).test(req.headers['origin'])
-      ) {
-        console.error(
-          `[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`
-        )
+      if (req.headers['origin'] && !new RegExp(this.options.origin).test(req.headers['origin'])) {
+        console.error(`[${ip}/BLOCKED] socket origin mismatch "${req.headers['origin']}"`)
         setTimeout(() => {
           return res.status(500).json({
             error: 'ignored',
           })
         }, 5000 + Math.random() * 5000)
       } else if (this.BANNED_IPS.indexOf(ip) !== -1) {
-        console.error(
-          `[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`
-        )
+        console.error(`[${ip}/BANNED] at "${req.url}" from "${req.headers['origin']}"`)
 
         setTimeout(() => {
           return res.status(500).json({
@@ -463,122 +450,118 @@ class Server extends EventEmitter {
         })
     })
 
-    app.get(
-      '/:pairs?/historical/:from/:to/:timeframe?/:exchanges?',
-      (req, res) => {
-        const ip =
-          req.headers['x-forwarded-for'] || req.connection.remoteAddress
-        let from = req.params.from
-        let to = req.params.to
-        let timeframe = req.params.timeframe
-        let exchanges = req.params.exchanges
-        let pairs = req.params.pairs
+    app.get('/:pairs?/historical/:from/:to/:timeframe?/:exchanges?', (req, res) => {
+      const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress
+      let from = req.params.from
+      let to = req.params.to
+      let timeframe = req.params.timeframe
+      let exchanges = req.params.exchanges
+      let pairs = req.params.pairs
 
-        if (pairs && pairs.length) {
-          pairs = pairs
-            .split('+')
-            .map((a) => a.trim())
-            .filter((a) => a.length)
+      if (pairs && pairs.length) {
+        pairs = pairs
+          .split('+')
+          .map((a) => a.trim())
+          .filter((a) => a.length)
 
-          for (let pair of pairs) {
-            if (!/^[A-Z_\-+]+$/.test(pair)) {
-              return res.status(400).json({
-                error: 'pair must be string full cap only',
-              })
-            } else if (this.options.pairs.indexOf(pair) === -1) {
-              return res.status(400).json({
-                error: 'unsupported pair "' + pair + '"',
-              })
-            }
-          }
-        }
-
-        if (!pairs.length) {
-          pairs = ['BTCUSD', 'BTCUSDT']
-        }
-
-        if (!this.options.api || !this.storages) {
-          return res.status(501).json({
-            error: 'no storage',
-          })
-        }
-
-        const storage = this.storages[0]
-
-        if (isNaN(from) || isNaN(to)) {
-          return res.status(400).json({
-            error: 'missing interval',
-          })
-        }
-
-        if (storage.format === 'point') {
-          exchanges = exchanges ? exchanges.split('/') : []
-          timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
-
-          from = Math.floor(from / timeframe) * timeframe
-          to = Math.ceil(to / timeframe) * timeframe
-
-          const length = (to - from) / timeframe
-
-          if (length > this.options.maxFetchLength) {
+        for (let pair of pairs) {
+          if (!/^[A-Z_\-+]+$/.test(pair)) {
             return res.status(400).json({
-              error: 'too many bars',
+              error: 'pair must be string full cap only',
+            })
+          } else if (this.options.pairs.indexOf(pair) === -1) {
+            return res.status(400).json({
+              error: 'unsupported pair "' + pair + '"',
             })
           }
-        } else {
-          from = parseInt(from)
-          to = parseInt(to)
         }
-
-        if (from > to) {
-          let _from = parseInt(from)
-          from = parseInt(to)
-          to = _from
-        }
-
-        const fetchStartAt = +new Date()
-
-        ;(storage
-          ? storage.fetch({
-              from,
-              to,
-              timeframe,
-              exchanges,
-              pairs,
-            })
-          : Promise.resolve([])
-        )
-          .then((output) => {
-            if (to - from > 1000 * 60) {
-              console.log(
-                `[${ip}] requesting ${getHms(to - from)} (${output.length} ${
-                  storage.format
-                }s, took ${getHms(+new Date() - fetchStartAt)})`
-              )
-            }
-
-            if (storage.format === 'trade') {
-              for (let i = 0; i < this.chunk.length; i++) {
-                if (this.chunk[i][1] <= from || this.chunk[i][1] >= to) {
-                  continue
-                }
-
-                output.push(this.chunk[i])
-              }
-            }
-
-            return res.status(200).json({
-              format: storage.format,
-              results: output,
-            })
-          })
-          .catch((error) => {
-            return res.status(500).json({
-              error: error.message,
-            })
-          })
       }
-    )
+
+      if (!pairs.length) {
+        pairs = ['BTCUSD', 'BTCUSDT']
+      }
+
+      if (!this.options.api || !this.storages) {
+        return res.status(501).json({
+          error: 'no storage',
+        })
+      }
+
+      const storage = this.storages[0]
+
+      if (isNaN(from) || isNaN(to)) {
+        return res.status(400).json({
+          error: 'missing interval',
+        })
+      }
+
+      if (storage.format === 'point') {
+        exchanges = exchanges ? exchanges.split('/') : []
+        timeframe = parseInt(timeframe) || 1000 * 60 // default to 1m
+
+        from = Math.floor(from / timeframe) * timeframe
+        to = Math.ceil(to / timeframe) * timeframe
+
+        const length = (to - from) / timeframe
+
+        if (length > this.options.maxFetchLength) {
+          return res.status(400).json({
+            error: 'too many bars',
+          })
+        }
+      } else {
+        from = parseInt(from)
+        to = parseInt(to)
+      }
+
+      if (from > to) {
+        let _from = parseInt(from)
+        from = parseInt(to)
+        to = _from
+      }
+
+      const fetchStartAt = +new Date()
+
+      ;(storage
+        ? storage.fetch({
+            from,
+            to,
+            timeframe,
+            exchanges,
+            pairs,
+          })
+        : Promise.resolve([])
+      )
+        .then((output) => {
+          if (to - from > 1000 * 60) {
+            console.log(
+              `[${ip}] requesting ${getHms(to - from)} (${output.length} ${
+                storage.format
+              }s, took ${getHms(+new Date() - fetchStartAt)})`
+            )
+          }
+
+          if (storage.format === 'trade') {
+            for (let i = 0; i < this.chunk.length; i++) {
+              if (this.chunk[i][1] <= from || this.chunk[i][1] >= to) {
+                continue
+              }
+
+              output.push(this.chunk[i])
+            }
+          }
+
+          return res.status(200).json({
+            format: storage.format,
+            results: output,
+          })
+        })
+        .catch((error) => {
+          return res.status(500).json({
+            error: error.message,
+          })
+        })
+    })
 
     this.server = app.listen(this.options.port, () => {
       console.log(
@@ -599,14 +582,14 @@ class Server extends EventEmitter {
     this._dumpConnectionsTimeout = setTimeout(() => {
       const structPairs = {}
 
-      for (let identifier in this.matchs) {
-        const match = this.matchs[identifier]
+      for (let id in this.connections) {
+        const connection = this.connections[id]
 
-        structPairs[match.exchange + ':' + match.local] = {
-          local: match.local,
-          remote: match.remote,
-          hit: match.hit,
-          ping: match.hit ? ago(match.timestamp) : 'never',
+        structPairs[connection.exchange + ':' + connection.pair] = {
+          exchange: connection.exchange,
+          pair: connection.pair,
+          hit: connection.hit,
+          ping: connection.hit ? ago(connection.timestamp) : 'never',
         }
       }
 
@@ -624,18 +607,20 @@ class Server extends EventEmitter {
     this.chunk = []
 
     const exchangesProductsResolver = Promise.all(
-      this.exchanges.map((exchange) =>
-        exchange.fetchAndConnect(this.options.pairs)
-      )
+      this.exchanges.map((exchange) => {
+        const exchangePairs = this.options.pairs.filter(
+          (pair) => pair.indexOf(':') === -1 || new RegExp('^' + exchange.id + ':').test(pair)
+        )
+
+        if (!exchangePairs.length) {
+          return Promise.resolve()
+        }
+
+        return exchange.fetchProductsAndConnect(exchangePairs)
+      })
     )
 
     exchangesProductsResolver.then(() => {
-      console.log(
-        `[server] listen ${this.options.pairs.join(',')} on ${
-          this.exchanges.length
-        } exchange(s)`
-      )
-
       this.dumpConnections()
     })
 
@@ -693,7 +678,10 @@ class Server extends EventEmitter {
 
     for (let exchange of this.exchanges) {
       for (let pair of pairs) {
-        if (!exchange.match[pair]) {
+        if (!exchange.pairs.indexOf(pair) === -1) {
+          console.log(
+            `[server/disconnectPairs] ${pair} is NOT currently connected on ${exchange.id} exchange (warning)`
+          )
           continue
         }
 
@@ -729,15 +717,13 @@ class Server extends EventEmitter {
       return
     }
 
-    const groups = groupByPairs(trades, true)
+    const groups = groupTrades(trades, true)
 
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         for (let i = 0; i < client.pairs.length; i++) {
           if (groups[client.pairs[i]]) {
-            client.send(
-              JSON.stringify([client.pairs[i], groups[client.pairs[i]]])
-            )
+            client.send(JSON.stringify([client.pairs[i], groups[client.pairs[i]]]))
           }
         }
       }
@@ -755,32 +741,28 @@ class Server extends EventEmitter {
     const activity = {}
     const pairs = {}
 
-    for (let identifier in this.matchs) {
-      const match = this.matchs[identifier]
+    for (let id in this.connections) {
+      const connection = this.connections[id]
 
-      if (!activity[match.source]) {
-        activity[match.source] = []
-        pairs[match.source] = []
+      if (!activity[connection.apiId]) {
+        activity[connection.apiId] = []
+        pairs[connection.apiId] = []
       }
 
-      activity[match.source].push(now - match.timestamp)
+      activity[connection.apiId].push(now - connection.timestamp)
 
-      pairs[match.source].push(match.remote)
+      pairs[connection.apiId].push(connection.remote)
     }
 
     for (let source in activity) {
-      const min = activity[source].length
-        ? Math.min.apply(null, activity[source])
-        : 0
+      const min = activity[source].length ? Math.min.apply(null, activity[source]) : 0
 
       if (min > this.options.reconnectionThreshold) {
         // one of the feed did not received any data since 1m or more
         // => reconnect api (and all the feed binded to it)
 
         console.log(
-          `[warning] api ${source} reached reconnection threshold ${getHms(
-            min
-          )} > ${getHms(
+          `[warning] api ${source} reached reconnection threshold ${getHms(min)} > ${getHms(
             this.options.reconnectionThreshold
           )}\n\t-> reconnect ${pairs[source].join(', ')}`
         )
@@ -873,9 +855,7 @@ class Server extends EventEmitter {
     pair = fsym + tsym
 
     if (this.symbols[pair]) {
-      if (
-        Math.floor((now - this.symbols[pair].time) / (1000 * 60 * 60 * 24)) > 1
-      ) {
+      if (Math.floor((now - this.symbols[pair].time) / (1000 * 60 * 60 * 24)) > 1) {
         delete this.symbols[pair]
       } else {
         return Promise.resolve(this.symbols[pair].volume)
@@ -918,8 +898,6 @@ class Server extends EventEmitter {
 
   dispatchTrades(exchange, { source, data }) {
     for (let i = 0; i < data.length; i++) {
-      data[i].pair = this.matchs[source + data[i].pair].mapped
-
       // push for storage...
       if (this.storages) {
         this.chunk.push(data[i])
@@ -939,18 +917,16 @@ class Server extends EventEmitter {
 
     for (let i = 0; i < length; i++) {
       const trade = data[i]
-      const identifier = source + trade.pair
+      const identifier = exchange + ':' + trade.pair
 
-      if (!this.matchs[identifier]) {
+      if (!this.connections[identifier]) {
         console.error(`UNKNOWN TRADE SOURCE`, trade)
         console.info('This trade will be ignored.')
         continue
       }
 
-      this.matchs[identifier].hit++
-      this.matchs[identifier].timestamp = now
-
-      data[i].pair = this.matchs[identifier].mapped
+      this.connections[identifier].hit++
+      this.connections[identifier].timestamp = now
 
       // push for storage...
       if (this.storages) {
@@ -960,10 +936,7 @@ class Server extends EventEmitter {
       if (this.aggregating[identifier]) {
         const queuedTrade = this.aggregating[identifier]
 
-        if (
-          queuedTrade.timestamp === trade.timestamp &&
-          queuedTrade.side === trade.side
-        ) {
+        if (queuedTrade.timestamp === trade.timestamp && queuedTrade.side === trade.side) {
           queuedTrade.size += trade.size
           queuedTrade.price += trade.price * trade.size
           continue
@@ -1006,9 +979,7 @@ class Server extends EventEmitter {
     fs.writeFileSync(
       './products',
       symbols.reduce((output, symbol) => {
-        output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(
-          ','
-        )})\n`
+        output += `${symbol} (${this.indexedProducts[symbol].exchanges.join(',')})\n`
 
         return output
       }, ''),
