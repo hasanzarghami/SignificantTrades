@@ -78,9 +78,3 @@ However, in order to show historical data you will need to setup your own server
 
 The current code for the server part is located in the [feature/server](https://github.com/Tucsky/SignificantTrades/tree/feature/server) branch.
 Let's say you have a server instance running on port 3000, start the client with an environment variable `API_URL=http://localhost:3000/{pair}/historical/{from}/{to}/{timeframe} npm run serve`.
-
-## Donate
-
-LN https://tippin.me/@Tucsky ⚡️
-BTC [3KjgsrxrQRannoEBSmUdCobuHZyTU3QFB6](bitcoin:3KjgsrxrQRannoEBSmUdCobuHZyTU3QFB6)
-XMR 48NJj3RJDo33zMLaudQDdM8G6MfPrQbpeZU2YnRN2Ep6hbKyYRrS2ZSdiAKpkUXBcjD2pKiPqXtQmSZjZM7fC6YT6CMmoX6
